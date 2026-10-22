@@ -1,0 +1,46 @@
+rules_version = '2';
+
+// Firestore security rules for HatchPlan Pro.
+// Every collection the iOS app touches is listed; anything else is denied.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // A hatch plan document as written by HatchPlanRepository.encode(_:).
+    function isValidPlan(plan) {
+      return plan.batchID is string && plan.batchID.size() > 0
+        && plan.status in ['DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'ACTIVE', 'COMPLETED']
+        && plan.targetChicks is int && plan.targetChicks > 0 && plan.targetChicks <= 250000
+        && plan.requiredEggs is int && plan.requiredEggs >= plan.targetChicks
+        && plan.safetyBuffer is number && plan.safetyBuffer >= 0 && plan.safetyBuffer <= 0.15
+        && plan.updatedAt is timestamp;
+    }
+
+    // User profile and FCM token: each user can only touch their own document.
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Hatch plans: shared by supervisors and managers across sites.
+    // Plans are never deleted by the app; they move to COMPLETED instead.
+    match /hatchPlans/{planId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && isValidPlan(request.resource.data);
+      allow delete: if false;
+    }
+
+    // Shared notification feeds, schedule and dashboard snapshots.
+    match /supervisorData/{docId} {
+      allow read, write: if signedIn();
+    }
+    match /managerData/{docId} {
+      allow read, write: if signedIn();
+    }
+    match /dashboardSnapshots/{docId} {
+      allow read, write: if signedIn();
+    }
+  }
+}
