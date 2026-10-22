@@ -14,7 +14,7 @@ struct SupervisorBatchesView: View {
                             .font(.title2.bold())
                             .foregroundColor(.hatchGreen)
                         Spacer()
-                        NavigationLink(destination: SupervisorProfileView()) {
+                        NavigationLink(destination: ProfileView()) {
                             Image(systemName: "person.crop.circle.fill")
                                 .font(.title2)
                                 .foregroundColor(.hatchGreen)
@@ -138,8 +138,7 @@ struct SupervisorBatchesView: View {
                 }
             }
             .background(Color.hatchSurface.ignoresSafeArea())
-            .navigationTitle("Hatchery Insights")
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             .onReceive(session.$hatchPlans) { _ in
                 viewModel.loadData(from: session)
             }

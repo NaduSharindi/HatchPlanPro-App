@@ -8,17 +8,7 @@ struct ManagerBatchHistoryListView: View {
         Group {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // MARK: - Header
-                    HStack {
-                        Text("Batch History")
-                            .font(.title2.bold())
-                            .foregroundColor(.hatchGreen)
-                        Spacer()
-                        Image(systemName: "person.crop.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.hatchGreen)
-                    }
-                    .padding(.horizontal, 20)
+                    ScreenHeader(title: "Batch History")
 
                     // MARK: - Quarterly Summary
                     VStack(alignment: .leading, spacing: 16) {
@@ -72,9 +62,7 @@ struct ManagerBatchHistoryListView: View {
                 .padding(.bottom, 20)
             }
             .background(Color.hatchSurface.ignoresSafeArea())
-            .navigationTitle("Batch History")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.visible, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .onReceive(session.$hatchPlans) { _ in
                 viewModel.loadData(from: session)
             }

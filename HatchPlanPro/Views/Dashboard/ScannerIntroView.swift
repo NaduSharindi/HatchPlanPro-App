@@ -16,12 +16,14 @@ struct ScannerIntroView: View {
 
     @State private var showDocumentScanner = false
     @State private var showPhotoPicker = false
+    @State private var showScanSourceChoice = false
+    @State private var showCameraUnavailable = false
     @State private var photoSelection: PhotosPickerItem?
     @State private var submittedPlan: HatchPlanRecord?
     @State private var submitError: String?
     @FocusState private var focusedField: Field?
 
-    private enum Field { case batchID, flockID, target }
+    private enum Field { case batchID, flockID, customer, target }
 
     init(revising plan: HatchPlanRecord? = nil) {
         _viewModel = StateObject(wrappedValue: NewPlanViewModel(revising: plan))
@@ -61,6 +63,7 @@ struct ScannerIntroView: View {
         .onAppear {
             if viewModel.batchID.isEmpty {
                 viewModel.batchID = session.nextBatchID()
+                if !viewModel.isRevision { viewModel.siteID = session.currentUser.siteID }
             }
         }
         .fullScreenCover(isPresented: $showDocumentScanner) {
@@ -72,6 +75,28 @@ struct ScannerIntroView: View {
                 onCancel: { showDocumentScanner = false }
             )
             .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showScanSourceChoice) {
+            ScanSourceSheet(
+                cameraAvailable: cameraAvailable,
+                onCamera: {
+                    showScanSourceChoice = false
+                    // Let the sheet finish dismissing before presenting the next one.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { scanWithCamera() }
+                },
+                onPhotos: {
+                    showScanSourceChoice = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showPhotoPicker = true }
+                }
+            )
+            .presentationDetents([.height(320)])
+            .presentationDragIndicator(.visible)
+        }
+        .alert("Camera Unavailable", isPresented: $showCameraUnavailable) {
+            Button("Choose from Photos") { showPhotoPicker = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The document camera needs a physical iPhone or iPad. On the Simulator, choose a photo of the certificate instead.")
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoSelection, matching: .images)
         .onChange(of: photoSelection) { _, item in
@@ -205,14 +230,28 @@ struct ScannerIntroView: View {
     private var certificateSubtitle: String {
         if viewModel.isProcessingScan { return "Reading certificate…" }
         if viewModel.hasCertificate { return "Tap to rescan. Fields below were filled from the scan." }
-        return DocumentScannerView.isSupported ? "Capture data from official hatchery docs" : "Camera unavailable – choose a photo of the certificate"
+        return "Scan with camera or choose a photo"
+    }
+
+    /// The Simulator reports VisionKit as supported but has no camera, so it
+    /// always goes to the photo library.
+    private var cameraAvailable: Bool {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        return DocumentScannerView.isSupported
+        #endif
     }
 
     private func startScan() {
-        if DocumentScannerView.isSupported {
+        showScanSourceChoice = true
+    }
+
+    private func scanWithCamera() {
+        if cameraAvailable {
             showDocumentScanner = true
         } else {
-            showPhotoPicker = true
+            showCameraUnavailable = true
         }
     }
 
@@ -279,13 +318,22 @@ struct ScannerIntroView: View {
     private var targetSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionLabel("PRODUCTION TARGETS")
-            formRow("Target Chicks") {
-                TextField("e.g. 12,500", text: $viewModel.targetChicksText)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .font(.title3.weight(.semibold))
-                    .foregroundColor(.hatchGreen)
-                    .focused($focusedField, equals: .target)
+            VStack(spacing: 0) {
+                formRow("Customer") {
+                    TextField("Ordering broiler farm", text: $viewModel.customerName)
+                        .multilineTextAlignment(.trailing)
+                        .textInputAutocapitalization(.words)
+                        .focused($focusedField, equals: .customer)
+                }
+                Divider()
+                formRow("Target Chicks") {
+                    TextField("e.g. 12,500", text: $viewModel.targetChicksText)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .font(.title3.weight(.semibold))
+                        .foregroundColor(.hatchGreen)
+                        .focused($focusedField, equals: .target)
+                }
             }
             .padding(.horizontal, 14)
             .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
@@ -478,6 +526,51 @@ struct ScannerIntroView: View {
             content()
         }
         .frame(minHeight: 48)
+    }
+}
+
+/// Bottom sheet offering the two ways to attach a certificate.
+private struct ScanSourceSheet: View {
+    let cameraAvailable: Bool
+    let onCamera: () -> Void
+    let onPhotos: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Attach Certificate").font(.title3.weight(.bold))
+            Text("Scan the paper certificate, or choose a photo or saved image of it.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            option(icon: "doc.viewfinder", title: "Scan with Camera",
+                   subtitle: cameraAvailable ? "Edge detection and auto-crop" : "Needs a physical iPhone or iPad",
+                   action: onCamera)
+            option(icon: "photo.on.rectangle", title: "Choose from Photos",
+                   subtitle: "Use an existing photo or screenshot", action: onPhotos)
+        }
+        .padding(20)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func option(icon: String, title: String, subtitle: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundColor(.white)
+                    .frame(width: 46, height: 46)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.hatchGreen))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline).foregroundColor(.primary)
+                    Text(subtitle).font(.caption).foregroundColor(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").foregroundColor(.secondary)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 16).fill(Color.hatchSurface))
+        }
+        .buttonStyle(.plain)
     }
 }
 

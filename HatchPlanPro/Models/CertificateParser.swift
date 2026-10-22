@@ -14,16 +14,48 @@ struct CertificateFields: Equatable {
     var flockAgeWeeks: Int?
     var breed: PoultryBreed?
     var certificateDate: String?
+    var targetChicks: Int?
+    var customerName: String?
 
     var fieldsFound: Int {
-        [batchID != nil, flockID != nil, flockAgeWeeks != nil, breed != nil, certificateDate != nil]
+        [batchID != nil, flockID != nil, flockAgeWeeks != nil, breed != nil, certificateDate != nil,
+         targetChicks != nil, customerName != nil]
             .filter { $0 }.count
     }
 
-    static let totalFields = 5
+    static let totalFields = 7
+}
+
+/// A piece of recognised text with its position, in Vision's normalised
+/// coordinates (origin bottom-left, 0...1).
+struct RecognizedTextBox {
+    let text: String
+    let minX: Double
+    let midY: Double
+    let height: Double
 }
 
 enum CertificateParser {
+    /// Vision reads table-style certificates column by column ("Batch No:",
+    /// "Flock ID:", … then "1031", "F-915", …). Regrouping boxes that share a
+    /// baseline restores "Batch No: 1031" so label/value patterns match.
+    static func rows(from boxes: [RecognizedTextBox]) -> [String] {
+        var rows: [[RecognizedTextBox]] = []
+        for box in boxes.sorted(by: { $0.midY > $1.midY }) {
+            if let index = rows.firstIndex(where: { row in
+                guard let anchor = row.first else { return false }
+                return abs(anchor.midY - box.midY) < max(anchor.height, box.height) * 0.5
+            }) {
+                rows[index].append(box)
+            } else {
+                rows.append([box])
+            }
+        }
+        return rows.map { row in
+            row.sorted { $0.minX < $1.minX }.map(\.text).joined(separator: " ")
+        }
+    }
+
     static func parse(_ lines: [String]) -> CertificateFields {
         let text = lines.joined(separator: "\n").uppercased()
         var fields = CertificateFields()
@@ -40,9 +72,23 @@ enum CertificateParser {
             fields.flockAgeWeeks = weeks
         }
 
-        fields.breed = PoultryBreed.match(in: firstMatch(#"(?:STRAIN|BREED)\s*[:\-]?\s*([A-Z ]+\d*)"#, in: text) ?? text)
+        // Prefer the labelled value; fall back to any breed named on the page.
+        fields.breed = firstMatch(#"(?:STRAIN|BREED)[ \t]*[:\-]?[ \t]*([A-Z ]+\d*)"#, in: text).flatMap { PoultryBreed.match(in: $0) }
+            ?? PoultryBreed.match(in: text)
 
-        fields.certificateDate = firstMatch(#"\b(\d{1,2}[/\-. ](?:\d{1,2}|[A-Z]{3})[/\-. ]\d{2,4})\b"#, in: text)
+        if let quantity = firstMatch(#"(?:CHICK ORDER|TARGET CHICKS|ORDER QUANTITY|ORDER QTY|CHICKS ORDERED)[^0-9\n]*([\d,]{3,})"#, in: text),
+           let chicks = Int(quantity.filter(\.isNumber)), chicks > 0 {
+            fields.targetChicks = chicks
+        }
+
+        // Read from the original casing so the customer name isn't shouted.
+        let original = lines.joined(separator: "\n")
+        fields.customerName = firstMatch(#"(?i)(?:CUSTOMER|ORDERED BY|BUYER)[ \t]*[:\-][ \t]*([^\n]+)"#, in: original)
+            .flatMap { $0.isEmpty ? nil : $0 }
+
+        // OCR often reads "/" as "|" or "I"; accept those and normalise back to "/".
+        fields.certificateDate = firstMatch(#"\b(\d{1,2}[/\-. |I](?:\d{1,2}|[A-Z]{3})[/\-. |I]\d{2,4})\b"#, in: text)
+            .map { $0.replacingOccurrences(of: "|", with: "/") }
 
         return fields
     }

@@ -40,11 +40,14 @@ enum CertificateOCRService {
         var confidences: [Float] = []
         for page in pages {
             let observations = try await recognize(page)
+            var boxes: [RecognizedTextBox] = []
             for observation in observations {
                 guard let candidate = observation.topCandidates(1).first else { continue }
-                lines.append(candidate.string)
+                let box = observation.boundingBox
+                boxes.append(RecognizedTextBox(text: candidate.string, minX: box.minX, midY: box.midY, height: box.height))
                 confidences.append(candidate.confidence)
             }
+            lines += CertificateParser.rows(from: boxes)
         }
         guard !lines.isEmpty else { throw OCRError.noText }
 

@@ -1,0 +1,4 @@
+# Build output from DemoAssets/prepare_demo.sh
+build/
+# Per-user Xcode state
+xcuserdata/

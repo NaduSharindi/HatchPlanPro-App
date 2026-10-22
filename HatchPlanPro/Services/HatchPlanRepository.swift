@@ -201,6 +201,7 @@ final class HatchPlanRepository: ObservableObject {
         managed.flockID = plan.flockID
         managed.flockAgeWeeks = Int16(plan.flockAgeWeeks)
         managed.siteID = plan.siteID
+        managed.customerName = plan.customerName
         managed.targetChicks = Int32(plan.targetChicks)
         managed.safetyBuffer = plan.safetyBuffer
         managed.standardHatchability = plan.standardHatchability
@@ -268,6 +269,7 @@ final class HatchPlanRepository: ObservableObject {
         plan.actualChicks = managed.actualChicks?.intValue
         plan.closedAt = managed.closedAt
         plan.closingNotes = managed.closingNotes
+        plan.customerName = managed.customerName ?? ""
         return plan
     }
 
@@ -278,6 +280,7 @@ final class HatchPlanRepository: ObservableObject {
             "flockID": plan.flockID,
             "flockAgeWeeks": plan.flockAgeWeeks,
             "siteID": plan.siteID,
+            "customerName": plan.customerName,
             "targetChicks": plan.targetChicks,
             "safetyBuffer": plan.safetyBuffer,
             "standardHatchability": plan.standardHatchability,
@@ -352,6 +355,7 @@ final class HatchPlanRepository: ObservableObject {
         plan.actualChicks = int("actualChicks")
         plan.closedAt = date("closedAt")
         plan.closingNotes = data["closingNotes"] as? String
+        plan.customerName = data["customerName"] as? String ?? ""
         return plan
     }
 
@@ -400,8 +404,10 @@ enum DemoPlanFactory {
                 createdBy: supervisor,
                 createdAt: day(setOffset - 2, hour: 9)
             )
+            let customers = ["Green Valley Broilers (Demo)", "Sunrise Poultry Farm (Demo)", "Hill Country Chicken Co. (Demo)"]
+            record.customerName = customers[number % customers.count]
             record.submittedAt = record.createdAt
-            record.certificateText = "FLOCK ID: \(flock)\nAGE: \(age) WEEKS\nSTRAIN: \(breed.rawValue.uppercased())"
+            record.certificateText = "FLOCK ID: \(flock)\nAGE: \(age) WEEKS\nSTRAIN: \(breed.rawValue.uppercased())\nCHICK ORDER: \(target)\nCUSTOMER: \(record.customerName)"
             return record
         }
 

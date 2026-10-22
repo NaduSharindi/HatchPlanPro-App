@@ -35,9 +35,9 @@ extension Color {
     }
     
     // MARK: - Figma Theme Colors
-    // UPDATE THESE WITH YOUR EXACT FIGMA HEX CODES
+    // Figma theme: Forest Green primary
     static let figmaBackground = Color(hex: "#F8F9FA")
-    static let figmaPrimary = Color(hex: "#FF8C00") // Example Hatchery Orange
+    static let figmaPrimary = Color(hex: "#245B24")
     static let figmaTextDark = Color(hex: "#2D3436")
     static let figmaTextLight = Color(hex: "#FFFFFF")
 }

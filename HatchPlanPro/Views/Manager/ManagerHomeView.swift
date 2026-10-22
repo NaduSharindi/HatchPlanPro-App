@@ -133,7 +133,7 @@ struct ManagerHomeView: View {
 
     private var statusCards: some View {
         VStack(spacing: 12) {
-            NavigationLink(destination: ManagerScheduleView()) {
+            NavigationLink(destination: ScheduleView()) {
                 navigationSummaryCard(title: "Ongoing Hatches", subtitle: "\(viewModel.activeCount) incubating", icon: "circle.grid.2x2.fill")
             }
             .buttonStyle(.plain)

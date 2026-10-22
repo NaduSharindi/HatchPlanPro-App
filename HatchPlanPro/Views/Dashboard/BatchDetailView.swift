@@ -19,6 +19,9 @@ struct BatchDetailView: View {
     @State private var showRevision = false
     @State private var showReport = false
     @State private var showReview = false
+    @State private var editingObservation: EditingObservation?
+    @State private var fullScreenPhoto: PhotoViewer?
+    @ObservedObject private var observationRepository = ObservationRepository.shared
 
     private var plan: HatchPlanRecord? { session.plan(withID: planID) }
 
@@ -37,6 +40,8 @@ struct BatchDetailView: View {
                         timeline(plan)
                         sourceFlock(plan)
                         if let actual = plan.actualChicks { resultsCard(plan, actual: actual) }
+                        if plan.status == .active || plan.status == .completed { biologicalTimeline(plan) }
+                        observationsCard(plan)
                         SiteMapCard(site: plan.site)
                         CertificateRecordCard(plan: plan)
                     }
@@ -60,21 +65,173 @@ struct BatchDetailView: View {
         }
         .navigationDestination(isPresented: $showReport) { ManagerReportPreviewView(planID: planID) }
         .navigationDestination(isPresented: $showReview) { ManagerApprovalPlanView(planID: planID) }
+        .navigationDestination(item: $editingObservation) { editing in
+            ObservationEditorView(observation: editing.observation, isNew: editing.isNew)
+        }
+        .sheet(item: $fullScreenPhoto) { photo in
+            if let image = UIImage(data: photo.data) {
+                Image(uiImage: image).resizable().scaledToFit().padding()
+                    .presentationDragIndicator(.visible)
+            }
+        }
+        .onAppear { observationRepository.startListening(planID: planID) }
+        .onDisappear { observationRepository.stopListening(planID: planID) }
     }
 
     private var header: some View {
-        HStack {
-            Button(action: { dismiss() }) {
-                Image(systemName: "chevron.left").foregroundColor(.hatchGreen)
+        ScreenHeader(title: "Batch Details")
+            .padding(.bottom, 4)
+            .background(Color.hatchSurface)
+    }
+
+    // MARK: - Biological timeline
+
+    private func biologicalTimeline(_ plan: HatchPlanRecord) -> some View {
+        let day = plan.incubationDay()
+        let steps: [(String, String, Int, Int)] = [
+            ("Egg Setting", "Day 0: \(plan.requiredEggs.formatted()) eggs placed in setters.", 0, 0),
+            ("Incubation Phase", "Days 1–\(ProductionCalculator.transferDay - 1): temperature and humidity cycling.", 1, ProductionCalculator.transferDay - 1),
+            ("Transfer to Hatcher", "Day \(ProductionCalculator.transferDay): move \(plan.setterTrays) trays to hatcher baskets.",
+             ProductionCalculator.transferDay, ProductionCalculator.incubationDays - 1),
+            ("Final Hatch Completion", "Day \(ProductionCalculator.incubationDays): pulling and quality assessment.",
+             ProductionCalculator.incubationDays, ProductionCalculator.incubationDays)
+        ]
+
+        func state(start: Int, end: Int) -> (label: String, color: Color, icon: String) {
+            switch plan.status {
+            case .completed:
+                return ("COMPLETED", .hatchGreen, "checkmark.circle.fill")
+            case .active where day > end || (start == 0 && end == 0):
+                return ("COMPLETED", .hatchGreen, "checkmark.circle.fill")
+            case .active where day >= start:
+                return ("ACTIVE", .hatchOrange, "circle.dotted.circle.fill")
+            default:
+                return ("UPCOMING", .secondary, "clock")
             }
-            .accessibilityLabel("Back")
-            Spacer()
-            Text("Batch Details").font(.headline).foregroundColor(.hatchGreen)
-            Spacer()
-            Color.clear.frame(width: 20)
         }
-        .padding()
-        .background(Color.white)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("Biological Timeline").font(.headline).foregroundColor(.hatchGreen).padding(.bottom, 12)
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                let status = state(start: step.2, end: step.3)
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(spacing: 0) {
+                        Image(systemName: status.icon).foregroundColor(status.color).font(.title3)
+                        if index < steps.count - 1 {
+                            Rectangle().fill(Color.gray.opacity(0.25)).frame(width: 2).frame(minHeight: 34)
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(step.0).font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text(status.label)
+                                .font(.caption2.weight(.bold))
+                                .foregroundColor(status.color == .secondary ? .secondary : .white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(status.color == .secondary ? Color.gray.opacity(0.15) : status.color))
+                        }
+                        Text(step.1).font(.caption).foregroundColor(.secondary)
+                    }
+                    .padding(.bottom, 14)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 18).fill(Color.white))
+    }
+
+    // MARK: - Observations
+
+    private func observationsCard(_ plan: HatchPlanRecord) -> some View {
+        let observations = observationRepository.observations(for: plan.id)
+        let canAdd = session.currentRole == .supervisor && plan.status != .completed && plan.status != .rejected
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("Supervisor Observations", systemImage: "note.text")
+                    .font(.headline)
+                    .foregroundColor(.hatchGreen)
+                Spacer()
+                Text("\(observations.count)").font(.caption.weight(.bold)).foregroundColor(.secondary)
+            }
+
+            if observations.isEmpty {
+                Text(canAdd ? "No observations yet. Record shell quality, egg vitality or temperature notes with photos."
+                            : "No observations recorded for this batch.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            ForEach(observations) { observation in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label(observation.category.rawValue, systemImage: observation.category.icon)
+                            .font(.caption.weight(.bold))
+                            .foregroundColor(observation.category.accentColor)
+                        Spacer()
+                        if session.canEdit(observation) && plan.status != .completed {
+                            Button("EDIT") { editingObservation = EditingObservation(observation: observation, isNew: false) }
+                                .font(.caption.weight(.bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Color.hatchGreenDeep))
+                        }
+                    }
+                    Text(observation.note).font(.subheadline)
+
+                    if !observation.photos.isEmpty {
+                        Text("ATTACHED PHOTOS (\(observation.photos.count))")
+                            .font(.caption2.weight(.bold)).tracking(1).foregroundColor(.secondary)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(Array(observation.photos.enumerated()), id: \.offset) { _, data in
+                                    if let image = UIImage(data: data) {
+                                        Button(action: { fullScreenPhoto = PhotoViewer(data: data) }) {
+                                            Image(uiImage: image)
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 84, height: 84)
+                                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        }
+                                        .accessibilityLabel("Observation photo")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HStack {
+                        Text(observation.authorName.isEmpty ? "Supervisor" : observation.authorName)
+                            .font(.caption.weight(.bold))
+                            .foregroundColor(.hatchGreen)
+                        Text(observation.authorRole).font(.caption2).foregroundColor(.secondary)
+                        Spacer()
+                        Text(observation.updatedAt.formatted(date: .abbreviated, time: .shortened) + (observation.wasEdited ? " • edited" : ""))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(14)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.hatchSurface))
+            }
+
+            if canAdd {
+                Button(action: { editingObservation = EditingObservation(observation: session.newObservation(for: plan.id), isNew: true) }) {
+                    Label("Add New Observation", systemImage: "plus.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.hatchGreen)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.hatchGreenSoft))
+                }
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 18).fill(Color.white))
     }
 
     private func idCard(_ plan: HatchPlanRecord) -> some View {
@@ -85,6 +242,11 @@ struct BatchDetailView: View {
                 Label(plan.site.name, systemImage: "mappin.and.ellipse")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                if !plan.customerName.isEmpty {
+                    Label(plan.customerName, systemImage: "cart")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 8) {
@@ -269,6 +431,17 @@ struct BatchDetailView: View {
         .padding(16)
         .background(Color.white)
     }
+}
+
+struct EditingObservation: Identifiable, Hashable {
+    var id: String { observation.id }
+    let observation: BatchObservation
+    let isNew: Bool
+}
+
+struct PhotoViewer: Identifiable {
+    let id = UUID()
+    let data: Data
 }
 
 #Preview {

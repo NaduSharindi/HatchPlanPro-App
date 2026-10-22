@@ -30,6 +30,16 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create, update: if signedIn() && isValidPlan(request.resource.data);
       allow delete: if false;
+
+      // Supervisor floor observations with up to four compressed photos.
+      match /observations/{observationId} {
+        allow read: if signedIn();
+        allow create, update: if signedIn()
+          && request.resource.data.note is string
+          && request.resource.data.photos is list
+          && request.resource.data.photos.size() <= 4;
+        allow delete: if signedIn() && resource.data.authorUID == request.auth.uid;
+      }
     }
 
     // Shared notification feeds, schedule and dashboard snapshots.

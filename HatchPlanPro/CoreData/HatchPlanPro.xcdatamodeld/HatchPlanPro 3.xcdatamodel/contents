@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="false" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES" codeGenerationType="class">
+        <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="CDUser" representedClassName="CDUser" syncable="YES" codeGenerationType="class">
+        <attribute name="uid" optional="YES" attributeType="String"/>
+        <attribute name="email" optional="YES" attributeType="String"/>
+        <attribute name="fullName" optional="YES" attributeType="String"/>
+        <attribute name="role" optional="YES" attributeType="String"/>
+        <attribute name="pinConfigured" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="biometricEnabled" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="CDBatch" representedClassName="CDBatch" syncable="YES" codeGenerationType="class">
+        <attribute name="batchID" optional="YES" attributeType="String"/>
+        <attribute name="breed" optional="YES" attributeType="String"/>
+        <attribute name="eggs" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="status" optional="YES" attributeType="String"/>
+        <attribute name="temperature" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="humidity" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="turnerStatus" optional="YES" attributeType="String"/>
+        <attribute name="progress" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="syncedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="CDNotification" representedClassName="CDNotification" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="String"/>
+        <attribute name="type" optional="YES" attributeType="String"/>
+        <attribute name="title" optional="YES" attributeType="String"/>
+        <attribute name="message" optional="YES" attributeType="String"/>
+        <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="timeLabel" optional="YES" attributeType="String"/>
+        <attribute name="isRead" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="role" optional="YES" attributeType="String"/>
+    </entity>
+    <entity name="CDObservation" representedClassName="CDObservation" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="String"/>
+        <attribute name="batchID" optional="YES" attributeType="String"/>
+        <attribute name="category" optional="YES" attributeType="String"/>
+        <attribute name="note" optional="YES" attributeType="String"/>
+        <attribute name="authorName" optional="YES" attributeType="String"/>
+        <attribute name="authorRole" optional="YES" attributeType="String"/>
+        <attribute name="timeLabel" optional="YES" attributeType="String"/>
+        <attribute name="photos" optional="YES" attributeType="String"/>
+    </entity>
+    <entity name="CDSchedule" representedClassName="CDSchedule" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="String"/>
+        <attribute name="batchID" optional="YES" attributeType="String"/>
+        <attribute name="breed" optional="YES" attributeType="String"/>
+        <attribute name="eggs" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="time" optional="YES" attributeType="String"/>
+        <attribute name="timeOfDay" optional="YES" attributeType="String"/>
+        <attribute name="dateLabel" optional="YES" attributeType="String"/>
+        <attribute name="status" optional="YES" attributeType="String"/>
+    </entity>
+    <entity name="CDHatchPlan" representedClassName="CDHatchPlan" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="String"/>
+        <attribute name="batchID" optional="YES" attributeType="String"/>
+        <attribute name="breed" optional="YES" attributeType="String"/>
+        <attribute name="flockID" optional="YES" attributeType="String"/>
+        <attribute name="flockAgeWeeks" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="siteID" optional="YES" attributeType="String"/>
+        <attribute name="targetChicks" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="safetyBuffer" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="standardHatchability" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="requiredEggs" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="setterTrays" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="plannedSetDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="status" optional="YES" attributeType="String"/>
+        <attribute name="createdBy" optional="YES" attributeType="String"/>
+        <attribute name="createdByUID" optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="updatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="submittedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="reviewedBy" optional="YES" attributeType="String"/>
+        <attribute name="reviewedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="approvalSignature" optional="YES" attributeType="String"/>
+        <attribute name="rejectionReason" optional="YES" attributeType="String"/>
+        <attribute name="certificateText" optional="YES" attributeType="String"/>
+        <attribute name="certificateImage" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="ocrConfidence" optional="YES" attributeType="Double" usesScalarValueType="NO"/>
+        <attribute name="executedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="calendarEventIDs" optional="YES" attributeType="String"/>
+        <attribute name="actualChicks" optional="YES" attributeType="Integer 32" usesScalarValueType="NO"/>
+        <attribute name="closedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="closingNotes" optional="YES" attributeType="String"/>
+        <attribute name="customerName" optional="YES" attributeType="String"/>
+        <attribute name="needsSync" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="id"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
+    <elements>
+        <element name="Item" positionX="-63" positionY="-18" width="128" height="44"/>
+        <element name="CDUser" positionX="0" positionY="63" width="128" height="148"/>
+        <element name="CDBatch" positionX="180" positionY="63" width="128" height="178"/>
+        <element name="CDNotification" positionX="360" positionY="63" width="128" height="163"/>
+        <element name="CDObservation" positionX="0" positionY="243" width="128" height="163"/>
+        <element name="CDSchedule" positionX="180" positionY="243" width="128" height="163"/>
+        <element name="CDHatchPlan" positionX="360" positionY="243" width="128" height="508"/>
+    </elements>
+</model>

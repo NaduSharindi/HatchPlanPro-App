@@ -110,6 +110,9 @@ struct ManagerApprovalPlanView: View {
                 BatchStatusBadge(status: plan.status)
             }
             Label(plan.site.name, systemImage: "mappin.and.ellipse").font(.subheadline)
+            if !plan.customerName.isEmpty {
+                Label("Order for \(plan.customerName)", systemImage: "cart").font(.subheadline)
+            }
             Label("Requested by \(plan.createdBy) • \((plan.submittedAt ?? plan.createdAt).formatted(date: .abbreviated, time: .shortened))",
                   systemImage: "person.crop.circle")
                 .font(.caption)

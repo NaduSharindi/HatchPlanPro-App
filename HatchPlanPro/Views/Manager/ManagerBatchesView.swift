@@ -116,29 +116,9 @@ struct ManagerApprovalsView: View {
     }
 
     private var header: some View {
-        HStack {
-            Button(action: {}) {
-                Image(systemName: "arrow.left")
-                    .font(.title3.weight(.semibold))
-                    .foregroundColor(.hatchGreen)
-                    .frame(width: 42, height: 42)
-            }
-
-            Spacer()
-
-            Text("Approvals")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .foregroundColor(.hatchGreen)
-
-            Spacer()
-
-            Circle()
-                .fill(LinearGradient(colors: [.brown.opacity(0.7), .black.opacity(0.85)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay(Text("M").font(.caption.weight(.bold)).foregroundColor(.white))
-                .frame(width: 42, height: 42)
+        ScreenHeader(title: "Approvals", showsBack: false) {
+            ProfileAvatar(profile: session.currentUser, size: 36)
         }
-        .padding(.horizontal, 4)
-        .padding(.top, 8)
     }
 
     private var bulkReviewCard: some View {
@@ -188,7 +168,9 @@ private struct ManagerApprovalItem: Identifiable {
         self.batchID = plan.batchID
         self.location = plan.location
         self.requestedAt = plan.createdAt.formatted(date: .abbreviated, time: .shortened)
-        self.chicksNeeded = "\(plan.targetChicks.formatted()) chicks needed"
+        self.chicksNeeded = plan.customerName.isEmpty
+            ? "\(plan.targetChicks.formatted()) chicks needed"
+            : "\(plan.targetChicks.formatted()) chicks for \(plan.customerName)"
         self.avatarSeed = String(plan.createdBy.prefix(1))
         self.isUrgent = isUrgent
         self.plan = plan

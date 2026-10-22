@@ -44,8 +44,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        let userInfo = response.notification.request.content.userInfo
-        print("HatchPlanPro: Notification tapped with payload: \(userInfo)")
+        if let planID = response.notification.request.content.userInfo["planID"] as? String {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .openHatchPlan, object: planID)
+            }
+        }
         completionHandler()
     }
     
@@ -65,6 +68,7 @@ struct HatchPlanProApp: App {
     
     // Check local storage to see if onboarding is complete
     @AppStorage("hasSeenOnboarding") var hasSeenOnboarding: Bool = false
+    @AppStorage("highContrastEnabled") private var highContrast = false
 
     var body: some Scene {
         WindowGroup {
@@ -84,9 +88,11 @@ struct HatchPlanProApp: App {
             .environmentObject(session)
             .environment(\.managedObjectContext, persistenceController.container.viewContext)
             .modifier(VoiceOverDynamicTypeModifier(session: session))
+            .environment(\.legibilityWeight, highContrast ? .bold : nil)
             .onAppear {
                 session.refreshVoiceOverStatus()
-                session.restoreStoredSession()            }
+                session.restoreStoredSession()
+            }
         }
     }
 }

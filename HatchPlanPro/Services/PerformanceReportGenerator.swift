@@ -97,6 +97,7 @@ enum PerformanceReportGenerator {
         var y = sectionTitle("Production Parameters", y: y)
         var rows: [(String, String)] = [
             ("Site", "\(plan.site.name) – \(plan.site.sector)"),
+            ("Customer", plan.customerName.isEmpty ? "—" : plan.customerName),
             ("Breed / flock", "\(plan.breed.rawValue) • \(plan.flockID) • \(plan.flockAgeWeeks) weeks"),
             ("Target chicks", plan.targetChicks.formatted()),
             ("Standard hatchability", percent(plan.standardHatchability)),

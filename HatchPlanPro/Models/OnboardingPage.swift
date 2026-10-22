@@ -39,6 +39,34 @@ enum AppOnboardingContent {
         )
     ]
 
+    static func pages(for role: HatcheryRole) -> [OnboardingPage] {
+        role == .manager ? managerPages : supervisorPages
+    }
+
+    static let managerPages: [OnboardingPage] = [
+        OnboardingPage(
+            systemImage: "chart.bar.xaxis",
+            title: "Manager Dashboard",
+            description: "Compare actual hatchability against breed standards across every Prima site.",
+            iconTint: .hatchGreen,
+            iconBackground: .hatchGreenSoft
+        ),
+        OnboardingPage(
+            systemImage: "map.fill",
+            title: "Verify on the Map",
+            description: "Review each plan's calculation beside its site, setter load and source certificate.",
+            iconTint: .hatchOrange,
+            iconBackground: .hatchOrangeSoft
+        ),
+        OnboardingPage(
+            systemImage: "signature",
+            title: "Sign & Report",
+            description: "Approve with Face ID as a digital signature and share PDF performance audits.",
+            iconTint: .hatchGreen,
+            iconBackground: .hatchGreenSoft
+        )
+    ]
+
     static let supervisorPages: [OnboardingPage] = [
         OnboardingPage(
             systemImage: "chart.line.uptrend.xyaxis",

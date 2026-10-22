@@ -40,6 +40,8 @@ struct PlanSubmittedView: View {
                 Divider()
                 row("SITE", plan.site.name)
                 Divider()
+                row("CUSTOMER", plan.customerName)
+                Divider()
                 HStack {
                     Text("BATCH").font(.caption.weight(.semibold)).foregroundColor(.secondary)
                     Spacer()

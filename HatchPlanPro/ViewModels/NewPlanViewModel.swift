@@ -16,6 +16,7 @@ final class NewPlanViewModel: ObservableObject {
     @Published var flockID = ""
     @Published var flockAgeWeeks = 34
     @Published var siteID = HatcherySite.all[0].id
+    @Published var customerName = ""
     @Published var targetChicksText = ""
     @Published var safetyBuffer = 0.05
     @Published var plannedSetDate = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
@@ -34,6 +35,7 @@ final class NewPlanViewModel: ObservableObject {
         flockID = plan.flockID
         flockAgeWeeks = plan.flockAgeWeeks
         siteID = plan.siteID
+        customerName = plan.customerName
         targetChicksText = String(plan.targetChicks)
         safetyBuffer = plan.safetyBuffer
         plannedSetDate = max(plan.plannedSetDate, Date())
@@ -53,6 +55,7 @@ final class NewPlanViewModel: ObservableObject {
     var validationMessage: String? {
         if let message = ProductionCalculator.validate(input) { return message }
         if flockID.trimmingCharacters(in: .whitespaces).isEmpty { return "Scan the certificate or enter the source flock ID." }
+        if customerName.trimmingCharacters(in: .whitespaces).isEmpty { return "Enter the customer this order is for." }
         if batchID.trimmingCharacters(in: .whitespaces).isEmpty { return "Enter a batch ID." }
         return nil
     }
@@ -77,12 +80,12 @@ final class NewPlanViewModel: ObservableObject {
             let result = try await CertificateOCRService.scan(pages: pages)
             scan = result
             apply(result.fields)
-            UINotificationFeedbackGenerator().notificationOccurred(result.fields.fieldsFound > 0 ? .success : .warning)
+            Haptics.notify(result.fields.fieldsFound > 0 ? .success : .warning)
             if result.fields.fieldsFound == 0 {
                 scanError = "The certificate was attached, but no batch fields were recognised. Enter them below."
             }
         } catch {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            Haptics.notify(.error)
             scanError = error.localizedDescription
         }
     }
@@ -92,6 +95,8 @@ final class NewPlanViewModel: ObservableObject {
         if let age = fields.flockAgeWeeks { flockAgeWeeks = age }
         if let scannedBreed = fields.breed { breed = scannedBreed }
         if let scannedBatch = fields.batchID, !isRevision { batchID = scannedBatch }
+        if let chicks = fields.targetChicks { targetChicksText = String(chicks) }
+        if let customer = fields.customerName { customerName = customer }
     }
 
     // MARK: - Output
@@ -112,6 +117,7 @@ final class NewPlanViewModel: ObservableObject {
             createdByUID: revising?.createdByUID,
             createdAt: revising?.createdAt ?? Date()
         )
+        plan.customerName = customerName.trimmingCharacters(in: .whitespaces)
         if let revising { plan.status = revising.status }
 
         if let scan {

@@ -142,6 +142,8 @@ struct HatchPlanRecord: Identifiable, Hashable {
     var flockID: String
     var flockAgeWeeks: Int
     var siteID: String
+    /// The broiler farm or buyer the chicks are ordered for.
+    var customerName = ""
     var targetChicks: Int
     var safetyBuffer: Double
     var standardHatchability: Double

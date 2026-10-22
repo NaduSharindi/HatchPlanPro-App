@@ -72,8 +72,7 @@ struct SupervisorHistoryView: View {
                 .padding(.bottom, 20)
             }
             .background(Color.hatchSurface.ignoresSafeArea())
-            .navigationTitle("Batch History")
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             .onReceive(session.$hatchPlans) { _ in
                 viewModel.loadData(from: session)
             }
