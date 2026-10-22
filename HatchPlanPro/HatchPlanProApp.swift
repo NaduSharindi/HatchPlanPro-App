@@ -86,8 +86,7 @@ struct HatchPlanProApp: App {
             .modifier(VoiceOverDynamicTypeModifier(session: session))
             .onAppear {
                 session.refreshVoiceOverStatus()
-                session.restoreStoredSession()
-            }
+                session.restoreStoredSession()            }
         }
     }
 }

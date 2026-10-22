@@ -260,6 +260,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "HatchPlan Pro adds candling, transfer and hatch-day milestones to your calendar when a batch is set";
 				INFOPLIST_KEY_NSCameraUsageDescription = "HatchPlan Pro uses the camera to scan verified attached certificates for batch scheduling";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "We use Face ID to securely log you into your hatchery account";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "HatchPlan Pro accesses your photo library to attach observation images to batch records";
@@ -294,6 +295,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "HatchPlan Pro adds candling, transfer and hatch-day milestones to your calendar when a batch is set";
 				INFOPLIST_KEY_NSCameraUsageDescription = "HatchPlan Pro uses the camera to scan verified attached certificates for batch scheduling";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "We use Face ID to securely log you into your hatchery account";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "HatchPlan Pro accesses your photo library to attach observation images to batch records";

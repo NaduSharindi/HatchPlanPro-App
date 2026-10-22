@@ -2,102 +2,109 @@
 //  ExecuteSetSheetView.swift
 //  HatchPlanPro
 //
-//  Created by GitHub Copilot on 2026-05-13.
+//  Confirms the physical egg set, starts the 21-day biological timer and
+//  syncs milestones to Calendar and local reminders.
 //
 
 import SwiftUI
 
 struct ExecuteSetSheetView: View {
-    @EnvironmentObject var session: AppSessionViewModel
-    @Environment(\.dismiss) var dismiss
-    let batchID: String
+    @EnvironmentObject private var session: AppSessionViewModel
+    @Environment(\.dismiss) private var dismiss
+    let planID: String
+
+    @AppStorage("execute.addToCalendar") private var addToCalendar = true
+    @AppStorage("execute.addReminders") private var addReminders = true
     @State private var isExecuting = false
-    @State private var showSuccess = false
+    @State private var outcome: ScheduleOutcome?
+    @State private var errorMessage: String?
+
+    private var plan: HatchPlanRecord? { session.plan(withID: planID) }
+    private var hatchDate: Date { ProductionCalculator.hatchDate(from: Date()) }
 
     var body: some View {
-        VStack(spacing: 24) {
-            Capsule()
-                .fill(Color(hex: "#EAEAEA"))
-                .frame(width: 60, height: 6)
-                .padding(.top, 12)
+        NavigationStack {
+            VStack(spacing: 20) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 84, height: 84)
+                    .background(Circle().fill(Color.hatchGreen))
+                    .padding(.top, 8)
+                    .accessibilityHidden(true)
 
-            Image(systemName: "checkmark")
-                .font(.system(size: 36))
-                .foregroundColor(.white)
-                .padding(20)
-                .background(Circle().fill(Color.hatchGreen))
+                Text("Execute Set & Sync Calendar?")
+                    .font(.title2.weight(.bold))
+                    .multilineTextAlignment(.center)
 
-            Text("Execute Set & Sync Calendar?")
-                .font(.title2.weight(.bold))
-                .foregroundColor(.black)
-                .multilineTextAlignment(.center)
+                Text("This starts the biological timer for \(plan?.requiredEggs.formatted() ?? "–") eggs in \(plan?.setterTrays ?? 0) setter trays and schedules the \(ProductionCalculator.incubationDays)-day incubation milestones.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
 
-            Text("This will initiate the biological timer for 42,500 eggs and synchronize the 21-day incubation schedule across all management devices.")
-                .font(.body)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
-
-            Spacer()
-
-            Button(action: performExecute) {
-                HStack {
-                    Image(systemName: "bolt.fill")
-                    Text(isExecuting ? "Executing…" : "Execute Set")
+                VStack(spacing: 0) {
+                    Toggle("Add milestones to Calendar", isOn: $addToCalendar)
+                    Divider().padding(.vertical, 8)
+                    Toggle("Schedule transfer & hatch reminders", isOn: $addReminders)
                 }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.hatchGreen))
-                .padding(.horizontal, 20)
-            }
-            .disabled(isExecuting)
+                .tint(.hatchGreen)
+                .padding(14)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.hatchSurface))
 
-            Button(action: { dismiss() }) {
-                Text("Cancel")
-                    .foregroundColor(.secondary)
-            }
-            .padding(.bottom, 16)
+                Spacer(minLength: 0)
 
-            HStack {
-                Text("SET DATE: TODAY")
-                    .font(.caption2.weight(.semibold))
+                Button(action: execute) {
+                    HStack {
+                        if isExecuting { ProgressView().tint(.white) } else { Image(systemName: "bolt.fill") }
+                        Text(isExecuting ? "Executing…" : "Execute Set")
+                    }
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.hatchGreenDeep))
+                }
+                .disabled(isExecuting || plan?.status != .approvedReady)
+
+                Button("Cancel") { dismiss() }
                     .foregroundColor(.secondary)
-                Spacer()
-                Text("HATCH: OCT 24")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundColor(.secondary)
+
+                VStack(spacing: 6) {
+                    HStack {
+                        Text("SET DATE: TODAY").foregroundColor(.secondary)
+                        Spacer()
+                        Text("HATCH: \(hatchDate.formatted(.dateTime.month(.abbreviated).day()).uppercased())")
+                            .foregroundColor(.hatchOrange)
+                    }
+                    .font(.caption2.weight(.bold))
+                    ProgressView(value: 0.05).tint(.hatchOrange)
+                }
             }
-            .padding(.horizontal, 20)
-            
-            ProgressView(value: 0.1)
-                .tint(Color(hex: "#997700"))
-                .padding(.horizontal, 20)
+            .padding(24)
+            .navigationDestination(item: $outcome) { outcome in
+                if let plan {
+                    BatchSetSuccessView(plan: plan, outcome: outcome) { dismiss() }
+                }
+            }
+            .alert("Unable to Execute", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
         }
-        .presentationDetents([.medium])
-        .sheet(isPresented: $showSuccess) {
-            BatchSetSuccessView(batchIDs: [batchID])
-                .environmentObject(session)
-        }
+        .presentationDetents([.large])
+        .interactiveDismissDisabled(isExecuting)
     }
 
-    private func performExecute() {
+    private func execute() {
         isExecuting = true
-        session.executeSet(batchID: batchID) { success in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                isExecuting = false
-                if success {
-                    showSuccess = true
-                } else {
-                    // handle failure (toast or alert)
-                    dismiss()
-                }
+        Task {
+            do {
+                outcome = try await session.executePlan(planID: planID, addToCalendar: addToCalendar, addReminders: addReminders)
+            } catch {
+                errorMessage = error.localizedDescription
             }
+            isExecuting = false
         }
     }
-}
-
-#Preview {
-    ExecuteSetSheetView(batchID: "#B1024")
-        .environmentObject(AppSessionViewModel())
 }

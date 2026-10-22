@@ -48,6 +48,12 @@ final class PushNotificationService: NSObject, ObservableObject {
         }
     }
     
+    func requestAuthorizationAsync() async -> Bool {
+        await withCheckedContinuation { continuation in
+            requestAuthorization { continuation.resume(returning: $0) }
+        }
+    }
+
     // MARK: - FCM Token
     
     /// Retrieves the current FCM token and saves it to Firestore

@@ -2,89 +2,76 @@
 //  BatchSetSuccessView.swift
 //  HatchPlanPro
 //
-//  Created by GitHub Copilot on 2026-05-13.
-//
 
 import SwiftUI
 
 struct BatchSetSuccessView: View {
-    @EnvironmentObject var session: AppSessionViewModel
-    @Environment(\.dismiss) var dismiss
-    let batchIDs: [String]
+    let plan: HatchPlanRecord
+    let outcome: ScheduleOutcome
+    let onFinish: () -> Void
 
     var body: some View {
         VStack(spacing: 24) {
             Spacer()
-            ZStack {
-                Circle()
-                    .fill(Color.hatchGreen.opacity(0.1))
-                    .frame(width: 80, height: 80)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 36, weight: .bold))
-                    .foregroundColor(.hatchGreen)
-            }
+
+            Image(systemName: "checkmark")
+                .font(.system(size: 40, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 96, height: 96)
+                .background(Circle().fill(Color.hatchGreen))
+                .accessibilityHidden(true)
 
             Text("Batch Successfully Set")
-                .font(.title2.weight(.bold))
-                .foregroundColor(.black)
+                .font(.largeTitle.weight(.bold))
+                .foregroundColor(.hatchGreenDeep)
+                .multilineTextAlignment(.center)
 
-            Text("12,500 units have been synchronized with the incubation calendar and facility sensors.")
+            Text("\(plan.requiredEggs.formatted()) eggs are incubating. Hatch is due \(ProductionCalculator.hatchDate(from: Date()).formatted(date: .complete, time: .omitted)).")
                 .font(.body)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("ACTIVE BATCH IDS")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    HStack(spacing: 8) {
-                        ForEach(batchIDs, id: \.self) { id in
-                            Text(id)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.hatchGreen))
-                        }
-                    }
-                }
-
+            VStack(spacing: 0) {
+                row("ACTIVE BATCH ID", plan.batchID)
                 Divider()
-
-                HStack {
-                    Text("START TIME")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("Today, 08:45 AM")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.black)
-                }
+                row("START TIME", "Today, \(Date().formatted(date: .omitted, time: .shortened))")
+                Divider()
+                row("CALENDAR", outcome.calendarEventIDs.isEmpty ? "Not added" : "\(outcome.calendarEventIDs.count) milestones added")
+                Divider()
+                row("REMINDERS", outcome.remindersScheduled == 0 ? "None scheduled" : "\(outcome.remindersScheduled) scheduled")
             }
-            .padding(16)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 16)
+            .background(RoundedRectangle(cornerRadius: 16).fill(Color.white))
+
+            if let error = outcome.calendarError {
+                Label(error, systemImage: "calendar.badge.exclamationmark")
+                    .font(.caption)
+                    .foregroundColor(Color(hex: "#9A6B00"))
+            }
 
             Spacer()
 
-            Button(action: { dismiss() }) {
-                Text("Return to Dashboard")
+            Button(action: onFinish) {
+                Text("Return to Batch")
                     .font(.headline)
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.hatchGreen))
-                    .padding(.horizontal, 24)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.hatchGreenDeep))
             }
-            .padding(.bottom, 20)
         }
+        .padding(24)
         .background(Color.hatchSurface.ignoresSafeArea())
+        .navigationBarBackButtonHidden(true)
     }
-}
 
-#Preview {
-    BatchSetSuccessView(batchIDs: ["#B1024", "#B1028", "#B1030"]) .environmentObject(AppSessionViewModel())
+    private func row(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title).font(.caption.weight(.semibold)).foregroundColor(.secondary)
+            Spacer()
+            Text(value).font(.subheadline.weight(.semibold))
+        }
+        .padding(.vertical, 14)
+        .accessibilityElement(children: .combine)
+    }
 }

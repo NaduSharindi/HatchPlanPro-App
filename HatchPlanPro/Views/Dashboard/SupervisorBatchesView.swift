@@ -50,10 +50,12 @@ struct SupervisorBatchesView: View {
 
                         VStack(spacing: 12) {
                             ForEach(viewModel.rejectedBatches) { item in
+                                NavigationLink(destination: BatchDetailView(planID: item.id)) {
                                 HStack(alignment: .top, spacing: 12) {
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(item.id)
+                                        Text(item.batchID)
                                             .font(.headline)
+                                            .foregroundColor(.primary)
                                         Text(item.breed)
                                             .font(.caption)
                                             .foregroundColor(.secondary)
@@ -72,19 +74,25 @@ struct SupervisorBatchesView: View {
                                 }
                                 .padding()
                                 .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hex: "#FAFAFA")))
+                                }
+                                .buttonStyle(.plain)
 
                                 HStack(spacing: 12) {
                                     Image(systemName: "exclamationmark.circle.fill")
                                         .foregroundColor(.red)
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text("Target temperature too high for breed specification. Update and resubmit.")
+                                        Text(item.rejectionReason ?? "The manager requested changes. Update and resubmit.")
                                             .font(.caption)
                                             .foregroundColor(.red)
                                     }
                                     Spacer()
-                                    NavigationLink(destination: ScannerIntroView().environmentObject(session)) {
-                                        Image(systemName: "plus.circle.fill")
-                                            .foregroundColor(.hatchGreen)
+                                    if let plan = session.plan(withID: item.id) {
+                                        NavigationLink(destination: ScannerIntroView(revising: plan)) {
+                                            Image(systemName: "arrow.uturn.backward.circle.fill")
+                                                .font(.title2)
+                                                .foregroundColor(.hatchGreen)
+                                        }
+                                        .accessibilityLabel("Revise and resubmit \(item.batchID)")
                                     }
                                 }
                                 .padding()
@@ -99,7 +107,7 @@ struct SupervisorBatchesView: View {
 
                     // MARK: - Calendar Synced
                     batchSection(
-                        title: "CALENDAR SYNCED",
+                        title: "INCUBATING • CALENDAR SYNCED",
                         count: "\(viewModel.syncedBatches.count) Items",
                         batches: viewModel.syncedBatches
                     )
@@ -110,7 +118,7 @@ struct SupervisorBatchesView: View {
                             .font(.caption.weight(.bold))
                             .kerning(1)
                             .foregroundColor(.white)
-                        Text("Hatchery efficiency is up \(String(format: "%.1f", viewModel.efficiencyIncrease))% this week.")
+                        Text("Hatchery efficiency is \(viewModel.efficiencyIncrease >= 0 ? "up" : "down") \(String(format: "%.1f", abs(viewModel.efficiencyIncrease)))% this week.")
                             .font(.title2.bold())
                             .foregroundColor(.white)
                         HStack(spacing: 8) {
@@ -132,7 +140,7 @@ struct SupervisorBatchesView: View {
             .background(Color.hatchSurface.ignoresSafeArea())
             .navigationTitle("Hatchery Insights")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
+            .onReceive(session.$hatchPlans) { _ in
                 viewModel.loadData(from: session)
             }
         }
@@ -152,7 +160,7 @@ struct SupervisorBatchesView: View {
 
             VStack(spacing: 10) {
                 ForEach(batches) { item in
-                    NavigationLink(destination: BatchDetailView(batchID: item.batchID, breed: item.breed, date: item.date, status: item.status, statusColor: item.statusColor, canExecute: item.statusCode == .approvedReady || item.statusCode == .synced).environmentObject(session)) {
+                    NavigationLink(destination: BatchDetailView(planID: item.id)) {
                         HStack(alignment: .center, spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(item.batchID)

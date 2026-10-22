@@ -5,7 +5,7 @@ struct ManagerBatchHistoryListView: View {
     @StateObject private var viewModel = SupervisorHistoryViewModel()
 
     var body: some View {
-        NavigationStack {
+        Group {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     // MARK: - Header
@@ -64,24 +64,18 @@ struct ManagerBatchHistoryListView: View {
                         batchHistoryMonth(title: month.title, batches: month.batches)
                     }
 
-                    // MARK: - Load Older
-                    Button(action: {}) {
-                        Text("LOAD OLDER BATCHES")
-                            .font(.caption.weight(.bold))
-                            .kerning(1)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .foregroundColor(.hatchGreen)
-                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.hatchGreenSoft))
+                    if viewModel.monthlyHistory.isEmpty {
+                        ContentUnavailableView("No Closed Batches", systemImage: "clock.arrow.circlepath",
+                                               description: Text("Batches appear here once supervisors log hatch results."))
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 20)
                 }
+                .padding(.bottom, 20)
             }
             .background(Color.hatchSurface.ignoresSafeArea())
             .navigationTitle("Batch History")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
+            .toolbar(.visible, for: .navigationBar)
+            .onReceive(session.$hatchPlans) { _ in
                 viewModel.loadData(from: session)
             }
         }
@@ -95,12 +89,14 @@ struct ManagerBatchHistoryListView: View {
 
             VStack(spacing: 10) {
                 ForEach(batches) { batch in
-                    NavigationLink(destination: ManagerDetailedBatchHistoryView(batchID: batch.id, breed: "Ross 308", date: batch.date, status: "COMPLETED", statusColor: .hatchGreen)) {
+                    NavigationLink(destination: BatchDetailView(planID: batch.planID)) {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(batch.id)
                                     .font(.headline)
                                     .foregroundColor(.hatchGreen)
+                                Text(batch.site)
+                                    .font(.subheadline)
                                 Text(batch.date)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
@@ -108,7 +104,7 @@ struct ManagerBatchHistoryListView: View {
                             Spacer()
                             Text(batch.rate)
                                 .font(.headline)
-                                .foregroundColor(.hatchGreen)
+                                .foregroundColor(batch.isBelowStandard ? .hatchOrange : .hatchGreen)
                             Image(systemName: "chevron.right")
                                 .foregroundColor(.secondary)
                         }

@@ -1,189 +1,231 @@
+//
+//  ManagerTasksView.swift
+//  HatchPlanPro
+//
+//  Geospatial verification: every Prima site on one map with its pending and
+//  incubating load, and an approval card for the selected site's queue.
+//
+
 import SwiftUI
 import MapKit
 
 struct ManagerMapView: View {
     @EnvironmentObject private var session: AppSessionViewModel
-    @State private var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 6.9319, longitude: 79.8478),
-        span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
-    )
+
+    @State private var position: MapCameraPosition = .region(MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 6.83, longitude: 80.10),
+        span: MKCoordinateSpan(latitudeDelta: 0.35, longitudeDelta: 0.35)))
+    @State private var selectedSiteID: String?
+    @State private var reviewPlanID: String?
+    @State private var rejectingPlan: HatchPlanRecord?
+    @State private var isSigning = false
+    @State private var errorMessage: String?
+
+    private var selectedSite: HatcherySite? { selectedSiteID.map { HatcherySite.site(withID: $0) } }
+
+    private func pending(at site: HatcherySite) -> [HatchPlanRecord] {
+        session.pendingPlans.filter { $0.siteID == site.id }
+    }
+
+    private func incubating(at site: HatcherySite) -> [HatchPlanRecord] {
+        session.activePlans.filter { $0.siteID == site.id }
+    }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Map(coordinateRegion: $region, interactionModes: .all, annotationItems: session.pendingPlans.isEmpty ? [] : [ManagerMapPin(coordinate: region.center)]) { pin in
-                MapMarker(coordinate: pin.coordinate, tint: .hatchGreen)
-            }
-            .ignoresSafeArea()
-
-            LinearGradient(colors: [Color.white.opacity(0.94), Color.white.opacity(0.1)], startPoint: .top, endPoint: .center)
-                .frame(height: 120)
-                .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                header
-
-                Spacer()
-
-                if let plan = session.pendingPlans.first {
-                    approvalCard(plan: plan)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 34)
-                } else {
-                    emptyMapState
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 34)
+        ZStack(alignment: .bottom) {
+            Map(position: $position, selection: $selectedSiteID) {
+                ForEach(HatcherySite.all) { site in
+                    Annotation(site.name, coordinate: site.coordinate) {
+                        siteMarker(site)
+                    }
+                    .tag(site.id)
                 }
-
-                Spacer(minLength: 110)
             }
+            .mapStyle(.hybrid(elevation: .realistic))
+            .mapControls {
+                MapCompass()
+                MapScaleView()
+            }
+
+            if let site = selectedSite {
+                siteCard(site)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                Text("Tap a site to review its plans")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(.ultraThinMaterial))
+                    .padding(.bottom, 20)
+            }
+        }
+        .animation(.spring(duration: 0.3), value: selectedSiteID)
+        .safeAreaInset(edge: .top) { header }
+        .navigationBarHidden(true)
+        .onAppear {
+            if selectedSiteID == nil {
+                selectedSiteID = session.pendingPlans.first?.siteID
+            }
+        }
+        .navigationDestination(item: $reviewPlanID) { id in
+            ManagerApprovalPlanView(planID: id)
+        }
+        .sheet(item: $rejectingPlan) { plan in
+            RejectPlanSheet(batchID: plan.batchID) { reason in
+                do {
+                    try session.rejectPlan(planID: plan.id, reason: reason)
+                    rejectingPlan = nil
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+        .alert("Action Not Applied", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
         }
     }
 
     private var header: some View {
-        HStack {
-            Button(action: {}) {
-                Image(systemName: "arrow.left")
-                    .font(.title3.weight(.semibold))
-                    .foregroundColor(.hatchGreen)
-                    .frame(width: 42, height: 42)
-            }
-
-            Spacer()
-
+        HStack(spacing: 10) {
+            AppLogoView(size: 28)
             Text("HatchPlan Pro")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .font(.headline.weight(.bold))
                 .foregroundColor(.hatchGreen)
-
             Spacer()
-
-            Button(action: {}) {
-                Image(systemName: "bell.fill")
-                    .font(.headline.weight(.semibold))
-                    .foregroundColor(.hatchGreen)
-                    .frame(width: 42, height: 42)
-            }
+            Label("\(session.pendingPlans.count) pending", systemImage: "clock.badge.exclamationmark")
+                .font(.caption.weight(.bold))
+                .foregroundColor(.hatchOrange)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .background(Color.white.opacity(0.96))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
     }
 
-    private func approvalCard(plan: HatchPlanRecord) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Capsule()
-                .fill(Color.secondary.opacity(0.25))
-                .frame(width: 48, height: 6)
-                .frame(maxWidth: .infinity)
+    private func siteMarker(_ site: HatcherySite) -> some View {
+        let pendingCount = pending(at: site).count
+        let selected = selectedSiteID == site.id
+        return VStack(spacing: 2) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "building.2.fill")
+                    .font(.system(size: selected ? 20 : 16, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: selected ? 44 : 36, height: selected ? 44 : 36)
+                    .background(Circle().fill(Color.hatchGreen))
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                if pendingCount > 0 {
+                    Text("\(pendingCount)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundColor(.black)
+                        .frame(width: 18, height: 18)
+                        .background(Circle().fill(Color(hex: "#FFD966")))
+                        .offset(x: 6, y: -6)
+                }
+            }
+        }
+        .accessibilityLabel("\(site.name), \(pendingCount) pending, \(incubating(at: site).count) incubating")
+    }
 
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("APPROVAL PENDING")
-                        .font(.caption.weight(.bold))
-                        .tracking(1.6)
-                        .foregroundColor(.hatchGreen)
-                    Text("Plan Review:\n\(plan.batchID), \(plan.location)")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
+    @ViewBuilder
+    private func siteCard(_ site: HatcherySite) -> some View {
+        let queue = pending(at: site)
+        let active = incubating(at: site)
+        let committedEggs = active.reduce(0) { $0 + $1.requiredEggs }
+
+        VStack(alignment: .leading, spacing: 14) {
+            Capsule().fill(Color.gray.opacity(0.4)).frame(width: 40, height: 5).frame(maxWidth: .infinity)
+
+            if let plan = queue.first {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("APPROVAL PENDING").font(.caption2.weight(.bold)).kerning(1).foregroundColor(.hatchGreen)
+                        Text("Plan Review: \(plan.batchID), \(site.name.replacingOccurrences(of: " Prima Farm", with: ""))")
+                            .font(.title3.weight(.bold))
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("TARGET CHICKS").font(.caption2.weight(.semibold)).foregroundColor(.secondary)
+                        Text(plan.targetChicks.formatted()).font(.headline).foregroundColor(.hatchGreen)
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.hatchSurface))
                 }
 
-                Spacer(minLength: 12)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("TARGET CHICKS")
-                        .font(.caption.weight(.bold))
-                        .foregroundColor(.secondary)
-                    Text("\(plan.targetChicks) CHICKS")
-                        .font(.title3.weight(.bold))
-                        .foregroundColor(.hatchGreen)
+                HStack(spacing: 12) {
+                    BatchStatTile(title: "SETTER TRAYS NEEDED", value: plan.setterTrays.formatted(), icon: "tray.full")
+                    BatchStatTile(title: "BUFFER APPLIED", value: plan.safetyBuffer.formatted(.percent.precision(.fractionLength(1))), icon: "chart.bar.fill", highlighted: true)
                 }
-                .padding(16)
-                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.hatchSurface))
-            }
 
-            HStack(spacing: 12) {
-                metricTile(title: "4,500", subtitle: "SHAVALS NEEDED", icon: "drop.fill", accent: .hatchGreenSoft, tint: .hatchGreen)
-                metricTile(title: "15%", subtitle: "BUFFER APPLIED", icon: "chart.bar.fill", accent: Color.hatchOrangeSoft, tint: .hatchOrange)
-            }
+                let load = Double(committedEggs + plan.requiredEggs) / Double(site.setterCapacity)
+                ProgressView(value: min(load, 1)) {
+                    Text("Setter load if approved: \(load.formatted(.percent.precision(.fractionLength(0)))) (\(active.count) batch\(active.count == 1 ? "" : "es") incubating)")
+                        .font(.caption)
+                        .foregroundColor(load > 1 ? .red : .secondary)
+                }
+                .tint(load > 1 ? .red : .hatchGreen)
 
-            NavigationLink(destination: ManagerApprovalPlanView(plan: session.pendingPlans.first)) {
-                Text("View Plan Details >")
-                    .font(.headline.weight(.semibold))
+                Button("View Plan Details ›") { reviewPlanID = plan.id }
+                    .font(.subheadline.weight(.semibold))
                     .foregroundColor(.hatchGreen)
                     .frame(maxWidth: .infinity)
-            }
-            .padding(.top, 2)
 
-            HStack(spacing: 14) {
-                actionButton(title: "Reject", systemImage: "xmark", foreground: .red, background: .white, border: Color.red.opacity(0.25)) {
-                    session.rejectPlan(batchID: plan.batchID)
+                HStack(spacing: 12) {
+                    Button(action: { rejectingPlan = plan }) {
+                        Label("Reject", systemImage: "xmark")
+                            .font(.headline)
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.3)))
+                    }
+                    Button(action: { approve(plan) }) {
+                        HStack {
+                            if isSigning { ProgressView().tint(.white) } else { Image(systemName: "checkmark.circle.fill") }
+                            Text("Approve")
+                        }
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.hatchGreenDeep))
+                    }
+                    .disabled(isSigning)
                 }
-                actionButton(title: "Approve", systemImage: "checkmark", foreground: .white, background: .hatchGreen, border: .hatchGreen) {
-                    session.approvePlan(batchID: plan.batchID)
+
+                if queue.count > 1 {
+                    Text("+\(queue.count - 1) more pending at this site")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
                 }
+            } else {
+                Text(site.name).font(.title3.weight(.bold))
+                Text(site.sector).font(.subheadline).foregroundColor(.secondary)
+                HStack(spacing: 12) {
+                    BatchStatTile(title: "INCUBATING", value: "\(active.count) batches", icon: "thermometer.medium")
+                    BatchStatTile(title: "SETTER LOAD", value: (Double(committedEggs) / Double(site.setterCapacity)).formatted(.percent.precision(.fractionLength(0))), icon: "gauge.with.dots.needle.33percent")
+                }
+                Label("No plans awaiting approval", systemImage: "checkmark.circle")
+                    .font(.subheadline)
+                    .foregroundColor(.hatchGreen)
             }
         }
         .padding(18)
-        .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color.white))
-        .shadow(color: .black.opacity(0.10), radius: 20, x: 0, y: 12)
+        .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(.regularMaterial))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
     }
 
-    private var emptyMapState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "map.fill")
-                .font(.system(size: 32, weight: .semibold))
-                .foregroundColor(.hatchGreen)
-            Text("No plans yet")
-                .font(.headline.weight(.semibold))
-            Text("When a supervisor submits a plan, it will appear here for location-based review.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+    private func approve(_ plan: HatchPlanRecord) {
+        isSigning = true
+        Task {
+            do {
+                try await session.approvePlan(planID: plan.id)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isSigning = false
         }
-        .frame(maxWidth: .infinity)
-        .padding(20)
-        .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color.white))
     }
-
-    private func metricTile(title: String, subtitle: String, icon: String, accent: Color, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Image(systemName: icon)
-                .font(.headline)
-                .foregroundColor(tint)
-
-            Text(title)
-                .font(.title2.weight(.bold))
-                .foregroundColor(.primary)
-
-            Text(subtitle)
-                .font(.caption.weight(.bold))
-                .foregroundColor(tint)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 122, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(accent))
-    }
-
-    private func actionButton(title: String, systemImage: String, foreground: Color, background: Color, border: Color, action: @escaping () -> Void) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: systemImage)
-            Text(title)
-        }
-        .font(.headline.weight(.semibold))
-        .foregroundColor(foreground)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(background))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(border, lineWidth: background == .white ? 1.5 : 0))
-        .onTapGesture(perform: action)
-    }
-}
-
-private struct ManagerMapPin: Identifiable {
-    let id = UUID()
-    let coordinate: CLLocationCoordinate2D
-}
-
-#Preview {
-    ManagerMapView()
 }

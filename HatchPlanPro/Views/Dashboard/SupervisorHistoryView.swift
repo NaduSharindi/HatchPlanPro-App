@@ -64,24 +64,17 @@ struct SupervisorHistoryView: View {
                         batchHistoryMonth(title: month.title, batches: month.batches)
                     }
 
-                    // MARK: - Load Older
-                    Button(action: {}) {
-                        Text("LOAD OLDER BATCHES")
-                            .font(.caption.weight(.bold))
-                            .kerning(1)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .foregroundColor(.hatchGreen)
-                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.hatchGreenSoft))
+                    if viewModel.monthlyHistory.isEmpty {
+                        ContentUnavailableView("No Closed Batches", systemImage: "clock.arrow.circlepath",
+                                               description: Text("Batches appear here once hatch results are logged."))
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 20)
                 }
+                .padding(.bottom, 20)
             }
             .background(Color.hatchSurface.ignoresSafeArea())
             .navigationTitle("Batch History")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
+            .onReceive(session.$hatchPlans) { _ in
                 viewModel.loadData(from: session)
             }
         }
@@ -95,24 +88,27 @@ struct SupervisorHistoryView: View {
 
             VStack(spacing: 10) {
                 ForEach(batches) { batch in
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(batch.id)
+                    NavigationLink(destination: BatchDetailView(planID: batch.planID)) {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(batch.id)
+                                    .font(.headline)
+                                    .foregroundColor(.hatchGreen)
+                                Text(batch.date)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Text(batch.rate)
                                 .font(.headline)
-                                .foregroundColor(.hatchGreen)
-                            Text(batch.date)
-                                .font(.caption)
+                                .foregroundColor(batch.isBelowStandard ? .hatchOrange : .hatchGreen)
+                            Image(systemName: "chevron.right")
                                 .foregroundColor(.secondary)
                         }
-                        Spacer()
-                        Text(batch.rate)
-                            .font(.headline)
-                            .foregroundColor(.hatchGreen)
-                        Image(systemName: "chevron.right")
-                            .foregroundColor(.secondary)
+                        .padding()
+                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.white))
                     }
-                    .padding()
-                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.white))
+                    .buttonStyle(.plain)
                 }
             }
         }

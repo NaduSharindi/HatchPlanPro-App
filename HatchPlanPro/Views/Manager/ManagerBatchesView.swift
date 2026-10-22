@@ -2,6 +2,25 @@ import SwiftUI
 
 struct ManagerApprovalsView: View {
     @EnvironmentObject private var session: AppSessionViewModel
+    @State private var isBulkSigning = false
+    @State private var showBulkConfirm = false
+    @State private var errorMessage: String?
+
+    private func approveAll() {
+        showBulkConfirm = true
+    }
+
+    private func signAll() {
+        isBulkSigning = true
+        Task {
+            do {
+                try await session.approvePlans(planIDs: session.pendingPlans.map(\.id))
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isBulkSigning = false
+        }
+    }
 
     private var pendingItems: [ManagerApprovalItem] {
         session.pendingPlans.map { plan in
@@ -48,6 +67,17 @@ struct ManagerApprovalsView: View {
         }
         .background(Color.hatchSurface.ignoresSafeArea())
         .navigationBarHidden(true)
+        .confirmationDialog("Approve \(pendingItems.count) plans?", isPresented: $showBulkConfirm, titleVisibility: .visible) {
+            Button("Sign & Approve All") { signAll() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(pendingItems.map { "\($0.batchID) – \($0.chicksNeeded)" }.joined(separator: "\n"))
+        }
+        .alert("Approval Not Applied", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 
     private func approvalSection(title: String, items: [ManagerApprovalItem], showActions: Bool) -> some View {
@@ -65,14 +95,21 @@ struct ManagerApprovalsView: View {
 
             VStack(spacing: 14) {
                 ForEach(items) { item in
-                    if showActions, let plan = item.plan {
-                        NavigationLink(destination: ManagerApprovalPlanView(plan: plan)) {
+                    if let plan = item.plan {
+                        NavigationLink(destination: showActions
+                                       ? AnyView(ManagerApprovalPlanView(planID: plan.id))
+                                       : AnyView(BatchDetailView(planID: plan.id))) {
                             ApprovalRowView(item: item)
                         }
                         .buttonStyle(.plain)
                     } else {
                         ApprovalRowView(item: item)
                     }
+                }
+                if items.isEmpty {
+                    Text(showActions ? "Queue is clear." : "None")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
                 }
             }
         }
@@ -114,8 +151,8 @@ struct ManagerApprovalsView: View {
                 .foregroundColor(.white.opacity(0.72))
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button(action: { session.approveAllPendingPlans(reviewedBy: session.currentUser.fullName) }) {
-                Text("Start Batch Approval")
+            Button(action: approveAll) {
+                Text(isBulkSigning ? "Signing…" : "Approve All \(pendingItems.count) with One Signature")
                     .font(.headline.weight(.semibold))
                     .foregroundColor(.hatchGreenDeep)
                     .frame(maxWidth: .infinity)
@@ -123,6 +160,7 @@ struct ManagerApprovalsView: View {
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.hatchOrangeSoft))
             }
             .buttonStyle(.plain)
+            .disabled(pendingItems.isEmpty || isBulkSigning)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)

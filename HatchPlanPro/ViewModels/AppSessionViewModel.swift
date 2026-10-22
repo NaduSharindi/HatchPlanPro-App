@@ -46,6 +46,8 @@ final class AppSessionViewModel: ObservableObject {
     @Published var unreadManagerNotifCount: Int = 0
 
     private let syncService = HatcherySyncService()
+    private let planRepository = HatchPlanRepository.shared
+    private var cancellables = Set<AnyCancellable>()
     private let authService = FirebaseAuthService.shared
     private let biometricService = BiometricAuthService.shared
     private var authStateHandle: AuthStateDidChangeListenerHandle?
@@ -157,7 +159,65 @@ final class AppSessionViewModel: ObservableObject {
         }
     }
 
+    /// Hatch-detail view model for a real batch. Sensor tiles remain simulated
+    /// until incubators are connected (IoT is out of scope for this release).
+    func detailSnapshot(for plan: HatchPlanRecord, observations: [SupervisorObservation]) -> HatchDetailSnapshot {
+        let day = plan.incubationDay()
+        func state(from start: Int, to end: Int) -> (String, String) {
+            if plan.status == .completed || day > end { return ("COMPLETED", "completed") }
+            if plan.status == .active && day >= start { return ("ACTIVE", "active") }
+            return ("UPCOMING", "upcoming")
+        }
+        let setting = plan.executedAt == nil ? ("UPCOMING", "upcoming") : ("COMPLETED", "completed")
+        let incubation = state(from: 1, to: ProductionCalculator.transferDay - 1)
+        let transfer = state(from: ProductionCalculator.transferDay, to: ProductionCalculator.incubationDays - 1)
+        let hatch = plan.status == .completed ? ("COMPLETED", "completed") : state(from: ProductionCalculator.incubationDays, to: Int.max)
+        let isCritical = plan.status == .active && plan.daysUntilHatch() <= 1
+
+        return HatchDetailSnapshot(
+            batchID: plan.batchID,
+            productionUnit: plan.site.name.uppercased(),
+            breed: plan.breed.rawValue,
+            criticalStatus: isCritical ? "CRITICAL" : plan.status.displayName,
+            incubationStage: plan.status == .active ? "Day \(day) of \(ProductionCalculator.incubationDays)" : plan.status.displayName.capitalized,
+            imageName: "hatch_detail_banner",
+            liveConnected: plan.status == .active,
+            sensors: [
+                HatchSensorReading(title: "TEMP", value: "37.5", unit: "°C", trend: "STABLE", status: "STABLE", iconName: "thermometer.medium"),
+                HatchSensorReading(title: "HUMIDITY", value: day >= ProductionCalculator.transferDay ? "65.0" : "55.0", unit: "%", trend: "STABLE", status: "STABLE", iconName: "drop.fill")
+            ],
+            metricTiles: [
+                HatchMetricTile(title: "EGGS TO SET", value: plan.requiredEggs.formatted(), caption: "Batch target capacity", accent: "#245B24"),
+                HatchMetricTile(title: "SETTER TRAYS", value: plan.setterTrays.formatted(), caption: "\(ProductionCalculator.eggsPerSetterTray) eggs per tray", accent: "#B78900")
+            ],
+            operationalTimeline: [
+                HatchMetricTile(title: "EGG SET DATE", value: plan.eggSetDate, caption: "Operational timeline", accent: "#245B24"),
+                HatchMetricTile(title: "HATCH DATE", value: plan.hatchDate, caption: "Operational timeline", accent: "#B78900")
+            ],
+            sourceFlocks: [
+                SourceFlockItem(flockID: plan.flockID, ageWeeks: "\(plan.flockAgeWeeks) weeks", allocated: plan.requiredEggs.formatted(), statusLabel: "ALLOCATED")
+            ],
+            biologicalTimeline: [
+                HatchTimelineStep(title: "Egg Setting", detail: "Day 0: \(plan.requiredEggs.formatted()) eggs placed in setters.", timeLabel: setting.0, state: setting.1),
+                HatchTimelineStep(title: "Incubation Phase", detail: "Days 1-\(ProductionCalculator.transferDay - 1): temperature and humidity cycling.", timeLabel: incubation.0, state: incubation.1),
+                HatchTimelineStep(title: "Transfer to Hatcher", detail: "Day \(ProductionCalculator.transferDay): transfer to hatcher baskets.", timeLabel: transfer.0, state: transfer.1),
+                HatchTimelineStep(title: "Final Hatch Completion", detail: "Day \(ProductionCalculator.incubationDays): pulling and quality assessment.", timeLabel: hatch.0, state: hatch.1)
+            ],
+            observations: observations,
+            eggSetDate: plan.eggSetDate,
+            hatchDate: plan.hatchDate,
+            co2Value: "5,420",
+            co2Unit: "ppm",
+            co2Bars: [0.35, 0.55, 0.8, 0.72, 0.9],
+            eggsToSetLabel: plan.requiredEggs.formatted(),
+            shavalsNeededLabel: plan.setterTrays.formatted()
+        )
+    }
+
     func detailSnapshot(for batch: ScheduledBatch) -> HatchDetailSnapshot {
+        if let plan = hatchPlans.first(where: { $0.batchID == batch.batchID }) {
+            return detailSnapshot(for: plan, observations: hatchDetailSnapshots[batch.batchID]?.observations ?? [])
+        }
         if let snapshot = hatchDetailSnapshots[batch.batchID] {
             return snapshot
         }
@@ -206,51 +266,74 @@ final class AppSessionViewModel: ObservableObject {
         )
     }
 
-    func initializeScheduledBatches() {
-        scheduledBatches = [
-            // Today, Oct 25
-            ScheduledBatch(
-                batchID: "#B7-902",
-                breed: "Ross 308",
-                eggs: 12480,
-                time: "08:45",
-                timeOfDay: "AM",
-                dateLabel: "TODAY, OCT 25",
-                status: "CRITICAL",
-                statusColor: Color(hex: "#FFB800")
-            ),
-            ScheduledBatch(
-                batchID: "#C2-114",
-                breed: "Cobb 500",
-                eggs: 8200,
-                time: "11:30",
-                timeOfDay: "AM",
-                dateLabel: "TODAY, OCT 25",
-                status: "ON DECK",
-                statusColor: .hatchGreen
-            ),
-            // Tomorrow, Oct 26
-            ScheduledBatch(
-                batchID: "#A9-442",
-                breed: "Ross 308",
-                eggs: 15000,
-                time: "06:00",
-                timeOfDay: "AM",
-                dateLabel: "TOMORROW, OCT 26",
-                status: "",
-                statusColor: .clear
-            ),
-            ScheduledBatch(
-                batchID: "#B3-008",
-                breed: "Hubbard",
-                eggs: 5600,
-                time: "02:15",
-                timeOfDay: "PM",
-                dateLabel: "TOMORROW, OCT 26",
-                status: "",
-                statusColor: .clear
-            )
-        ]
+    /// Rebuilds the operational schedule from approved and incubating batches:
+    /// each contributes its next milestone (set, transfer or hatch).
+    private func rebuildSchedule(from plans: [HatchPlanRecord]) {
+        let now = Date()
+        let calendar = Calendar.current
+        var entries: [(date: Date, batch: ScheduledBatch)] = []
+
+        for plan in plans {
+            let milestone: (date: Date, label: String)?
+            switch plan.status {
+            case .approvedReady:
+                milestone = (plan.plannedSetDate, "SET")
+            case .active:
+                milestone = plan.transferDate > now ? (plan.transferDate, "TRANSFER") : (plan.hatchDateValue, "HATCH")
+            default:
+                milestone = nil
+            }
+            guard let milestone else { continue }
+
+            let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: milestone.date)).day ?? 0
+            let status: String
+            let color: Color
+            if milestone.label == "HATCH" && days <= 1 {
+                status = "CRITICAL"
+                color = Color(hex: "#FFB800")
+            } else if days <= 0 {
+                status = "ON DECK"
+                color = .hatchGreen
+            } else {
+                status = milestone.label
+                color = .secondary
+            }
+
+            let time = milestone.date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+            let amPM = calendar.component(.hour, from: milestone.date) < 12 ? "AM" : "PM"
+            entries.append((milestone.date, ScheduledBatch(
+                id: plan.id,
+                batchID: plan.batchID,
+                breed: plan.breed.rawValue,
+                eggs: plan.requiredEggs,
+                time: time,
+                timeOfDay: amPM,
+                dateLabel: Self.scheduleDateLabel(for: milestone.date, relativeTo: now),
+                status: status,
+                statusColor: color
+            )))
+        }
+
+        scheduledBatches = entries.sorted { $0.date < $1.date }.map(\.batch)
+
+        if let next = plans.filter({ $0.status == .active }).min(by: { $0.hatchDateValue < $1.hatchDateValue }) {
+            let days = next.daysUntilHatch(asOf: now)
+            let title = days == 0 ? "\(next.batchID) hatch window is open" : "\(next.batchID) hatches in \(days) day\(days == 1 ? "" : "s")"
+            efficiencyForecast = EfficiencyForecast(title: title, percentage: next.incubationProgress(asOf: now), peakTime: "\(days)d")
+        } else {
+            efficiencyForecast = EfficiencyForecast(title: "No batches incubating", percentage: 0)
+        }
+    }
+
+    private static func scheduleDateLabel(for date: Date, relativeTo now: Date) -> String {
+        let calendar = Calendar.current
+        let monthDay = date.formatted(.dateTime.month(.abbreviated).day()).uppercased()
+        if calendar.isDate(date, inSameDayAs: now) { return "TODAY, \(monthDay)" }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: tomorrow) {
+            return "TOMORROW, \(monthDay)"
+        }
+        if date < now { return "OVERDUE, \(monthDay)" }
+        return "\(date.formatted(.dateTime.weekday(.abbreviated)).uppercased()), \(monthDay)"
     }
 
     var batches: [HatcheryBatch] {
@@ -284,15 +367,33 @@ final class AppSessionViewModel: ObservableObject {
 
     var pendingPlans: [HatchPlanRecord] {
         hatchPlans.filter { $0.status == .pendingReview }
+            .sorted { ($0.submittedAt ?? $0.createdAt) < ($1.submittedAt ?? $1.createdAt) }
     }
 
     var approvedPlans: [HatchPlanRecord] {
-        hatchPlans.filter { $0.status == .approvedReady || $0.status == .synced }
+        hatchPlans.filter { $0.status == .approvedReady }
     }
 
     var rejectedPlans: [HatchPlanRecord] {
         hatchPlans.filter { $0.status == .rejected }
     }
+
+    var activePlans: [HatchPlanRecord] {
+        hatchPlans.filter { $0.status == .active }
+            .sorted { $0.hatchDateValue < $1.hatchDateValue }
+    }
+
+    var completedPlans: [HatchPlanRecord] {
+        hatchPlans.filter { $0.status == .completed }
+            .sorted { ($0.closedAt ?? $0.updatedAt) > ($1.closedAt ?? $1.updatedAt) }
+    }
+
+    func plan(withID id: String) -> HatchPlanRecord? {
+        hatchPlans.first { $0.id == id }
+    }
+
+    /// Batches saved on this device that Firestore has not acknowledged yet.
+    @Published private(set) var pendingSyncCount = 0
 
     var todayScheduledBatches: [ScheduledBatch] {
         scheduledBatches.filter { $0.dateLabel.uppercased().contains("TODAY") }
@@ -486,87 +587,219 @@ final class AppSessionViewModel: ObservableObject {
         isPINVerified = true
     }
 
-    func bootstrapPlanStateIfNeeded() {
-        guard hatchPlans.isEmpty else { return }
+    // MARK: - Batch Lifecycle
+    //
+    // Planning → Verification → Documentation → Execution → Closing.
+    // Every mutation is role-checked, validated against BatchStatus's
+    // transition table, saved to Core Data and pushed to Firestore.
 
-        hatchPlans = [
-            HatchPlanRecord(batchID: "#B1024", breed: "Ross 308", targetChicks: 12500, eggSetDate: "Oct 20, 2023", hatchDate: "Nov 10, 2023", status: .pendingReview, createdBy: "Hatchery Supervisor", createdAt: Date().addingTimeInterval(-1800), reviewedBy: nil, rejectionReason: nil, location: "Meegoda"),
-            HatchPlanRecord(batchID: "#B1028", breed: "Cobb 500", targetChicks: 9800, eggSetDate: "Oct 22, 2023", hatchDate: "Nov 12, 2023", status: .approvedReady, createdBy: "Hatchery Supervisor", createdAt: Date().addingTimeInterval(-86000), reviewedBy: "Manager", rejectionReason: nil, location: "Kosgama"),
-            HatchPlanRecord(batchID: "#B1022", breed: "Lohmann Brown", targetChicks: 11200, eggSetDate: "Oct 19, 2023", hatchDate: "Nov 09, 2023", status: .rejected, createdBy: "Hatchery Supervisor", createdAt: Date().addingTimeInterval(-140000), reviewedBy: "Manager", rejectionReason: "Target temperature requires a tighter band.", location: "Halwatura")
-        ]
+    /// Generates a batch ID that is unique among known plans.
+    func nextBatchID() -> String {
+        let existing = Set(hatchPlans.map(\.batchID))
+        var candidate: String
+        repeat {
+            candidate = "#B\(Int.random(in: 1030...9999))"
+        } while existing.contains(candidate)
+        return candidate
     }
 
-    func submitPlan(batchID: String,
-                    breed: String,
-                    targetChicks: Int,
-                    eggSetDate: String,
-                    hatchDate: String,
-                    location: String = "Meegoda",
-                    createdBy: String? = nil) {
-        let plan = HatchPlanRecord(
-            batchID: batchID,
-            breed: breed,
-            targetChicks: targetChicks,
-            eggSetDate: eggSetDate,
-            hatchDate: hatchDate,
-            status: .pendingReview,
-            createdBy: createdBy ?? currentUser.fullName,
-            createdAt: Date(),
-            reviewedBy: nil,
-            rejectionReason: nil,
-            location: location
-        )
+    /// Supervisor: sends a new or revised plan for manager review.
+    @discardableResult
+    func submitPlan(_ draft: HatchPlanRecord) throws -> HatchPlanRecord {
+        try requireRole(.supervisor, to: "submit production plans")
+        guard ProductionCalculator.validate(ProductionInput(
+            targetChicks: draft.targetChicks, breed: draft.breed, flockAgeWeeks: draft.flockAgeWeeks,
+            safetyBuffer: draft.safetyBuffer, siteCapacity: draft.site.setterCapacity)) == nil else {
+            throw BatchLifecycleError.invalidInput("The plan's production figures are invalid. Recalculate before submitting.")
+        }
+        guard !draft.flockID.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw BatchLifecycleError.invalidInput("Enter or scan the source flock ID.")
+        }
+        if hatchPlans.contains(where: { $0.batchID == draft.batchID && $0.id != draft.id }) {
+            throw BatchLifecycleError.invalidInput("Batch \(draft.batchID) already exists. Use a different batch ID.")
+        }
 
-        hatchPlans.insert(plan, at: 0)
+        let current = plan(withID: draft.id)?.status ?? .draft
+        guard current.canTransition(to: .pendingReview) else {
+            throw BatchLifecycleError.invalidTransition(from: current, to: .pendingReview)
+        }
+
+        var plan = draft
+        plan.status = .pendingReview
+        plan.submittedAt = Date()
+        plan.reviewedBy = nil
+        plan.reviewedAt = nil
+        plan.rejectionReason = nil
+        plan.approvalSignature = nil
+        plan.createdByUID = plan.createdByUID ?? authService.currentUser?.uid
+        planRepository.save(plan)
+
+        let verb = current == .rejected ? "resubmitted" : "submitted"
         appendSupervisorNotification(type: .approvalUpdate,
-                                     title: "Plan for Batch \(batchID) submitted for review.",
+                                     title: "Plan for Batch \(plan.batchID) \(verb) for review.",
                                      message: "Waiting for manager approval before execution.")
-        PushNotificationService.shared.scheduleApprovalNotification(batchID: batchID, supervisorName: currentUser.fullName)
-    }
-
-    func approvePlan(batchID: String, reviewedBy managerName: String = "Manager") {
-        guard let index = hatchPlans.firstIndex(where: { $0.batchID == batchID }) else { return }
-        hatchPlans[index].status = .approvedReady
-        hatchPlans[index].reviewedBy = managerName
-        hatchPlans[index].rejectionReason = nil
-
-        appendSupervisorNotification(type: .approvalUpdate,
-                                     title: "Batch \(batchID) approved and ready.",
-                                     message: "You can now execute the hatch plan.")
         appendManagerNotification(type: .approvalUpdate,
-                                   title: "Batch \(batchID) approved.",
-                                   message: "Supervisor plan moved to approved list.")
-        PushNotificationService.shared.scheduleLocalNotification(title: "Batch Approved", body: "Batch \(batchID) is ready for execution.", identifier: "batch_approved_\(batchID)", timeInterval: 1)
+                                  title: "Plan Approval Requested",
+                                  message: "\(plan.createdBy) submitted \(plan.batchID) for \(plan.site.name).")
+        return plan
     }
 
-    func rejectPlan(batchID: String, reason: String = "The manager requested changes before execution.") {
-        guard let index = hatchPlans.firstIndex(where: { $0.batchID == batchID }) else { return }
-        hatchPlans[index].status = .rejected
-        hatchPlans[index].reviewedBy = "Manager"
-        hatchPlans[index].rejectionReason = reason
+    /// Manager: signs with Face ID / passcode and approves one plan.
+    @MainActor
+    func approvePlan(planID: String) async throws {
+        try await approvePlans(planIDs: [planID])
+    }
+
+    /// Manager: one signature authorises every plan in the list.
+    @MainActor
+    func approvePlans(planIDs: [String]) async throws {
+        try requireRole(.manager, to: "approve production plans")
+        let plans = try planIDs.map { id -> HatchPlanRecord in
+            guard let plan = plan(withID: id) else { throw BatchLifecycleError.planNotFound }
+            guard plan.status.canTransition(to: .approvedReady) else {
+                throw BatchLifecycleError.invalidTransition(from: plan.status, to: .approvedReady)
+            }
+            return plan
+        }
+        guard !plans.isEmpty else { return }
+
+        let label = plans.count == 1 ? "batch \(plans[0].batchID)" : "\(plans.count) batches"
+        let signature = try await ApprovalSignatureService.sign(as: currentUser.fullName,
+                                                                reason: "Sign to authorise \(label) for setting.")
+
+        for var plan in plans {
+            plan.status = .approvedReady
+            plan.reviewedBy = currentUser.fullName
+            plan.reviewedAt = Date()
+            plan.approvalSignature = signature
+            plan.rejectionReason = nil
+            planRepository.save(plan)
+
+            appendSupervisorNotification(type: .approvalUpdate,
+                                         title: "Plan for Batch \(plan.batchID) has been approved by \(currentUser.fullName).",
+                                         message: "You can now execute the set.")
+            appendManagerNotification(type: .approvalUpdate,
+                                      title: "Batch \(plan.batchID) approved.",
+                                      message: "Signed \(signature).")
+        }
+    }
+
+    /// Manager: returns a plan to the supervisor with a mandatory reason.
+    func rejectPlan(planID: String, reason: String) throws {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw BatchLifecycleError.invalidInput("Give the supervisor a reason so they can correct the plan.")
+        }
+        let plan = try transition(planID, to: .rejected, requiredRole: .manager, action: "reject production plans") { plan in
+            plan.reviewedBy = currentUser.fullName
+            plan.reviewedAt = Date()
+            plan.rejectionReason = trimmed
+            plan.approvalSignature = nil
+        }
 
         appendSupervisorNotification(type: .approvalUpdate,
-                                     title: "Batch \(batchID) was rejected.",
-                                     message: reason)
+                                     title: "Batch \(plan.batchID) was rejected.",
+                                     message: trimmed)
         appendManagerNotification(type: .systemMessage,
-                                   title: "Batch \(batchID) rejected.",
-                                   message: reason)
-        PushNotificationService.shared.scheduleLocalNotification(title: "Batch Rejected", body: "Batch \(batchID) requires changes.", identifier: "batch_rejected_\(batchID)", timeInterval: 1)
+                                  title: "Batch \(plan.batchID) rejected.",
+                                  message: trimmed)
     }
 
-    func executeApprovedPlan(batchID: String) {
-        guard let index = hatchPlans.firstIndex(where: { $0.batchID == batchID }) else { return }
-        hatchPlans[index].status = .synced
+    /// Supervisor: records that eggs are physically set, then schedules the
+    /// 21-day milestones in Calendar and as local reminders.
+    @MainActor
+    func executePlan(planID: String, addToCalendar: Bool, addReminders: Bool) async throws -> ScheduleOutcome {
+        try requireRole(.supervisor, to: "execute sets")
+        guard let approved = plan(withID: planID) else { throw BatchLifecycleError.planNotFound }
+        guard approved.status.canTransition(to: .active) else {
+            throw BatchLifecycleError.invalidTransition(from: approved.status, to: .active)
+        }
+
+        let setDate = Date()
+        if addReminders {
+            _ = await PushNotificationService.shared.requestAuthorizationAsync()
+        }
+        let outcome = await IncubationScheduler.shared.schedule(approved, setDate: setDate,
+                                                                addToCalendar: addToCalendar, addReminders: addReminders)
+
+        let plan = try transition(planID, to: .active, requiredRole: .supervisor, action: "execute sets") { plan in
+            plan.executedAt = setDate
+            plan.calendarEventIDs = outcome.calendarEventIDs
+        }
 
         appendManagerNotification(type: .approvalUpdate,
-                                   title: "Batch \(batchID) executed by supervisor.",
-                                   message: "The plan has been synchronised and moved into execution.")
-        PushNotificationService.shared.scheduleBatchAlert(batchID: batchID, message: "Batch \(batchID) has been executed and synchronised.")
+                                  title: "Batch \(plan.batchID) set by \(currentUser.fullName).",
+                                  message: "\(plan.requiredEggs.formatted()) eggs incubating. Hatch due \(plan.hatchDate).")
+        return outcome
     }
 
-    func approveAllPendingPlans(reviewedBy managerName: String = "Manager") {
-        let pendingBatchIDs = pendingPlans.map { $0.batchID }
-        pendingBatchIDs.forEach { approvePlan(batchID: $0, reviewedBy: managerName) }
+    /// Supervisor: logs actual chicks pulled and closes the batch.
+    func closeBatch(planID: String, actualChicks: Int, notes: String) throws {
+        guard let current = plan(withID: planID) else { throw BatchLifecycleError.planNotFound }
+        guard actualChicks >= 0, actualChicks <= current.requiredEggs else {
+            throw BatchLifecycleError.invalidInput("Chicks hatched must be between 0 and the \(current.requiredEggs.formatted()) eggs set.")
+        }
+
+        let plan = try transition(planID, to: .completed, requiredRole: .supervisor, action: "close batches") { plan in
+            plan.actualChicks = actualChicks
+            plan.closedAt = Date()
+            plan.closingNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        IncubationScheduler.shared.cancelReminders(for: plan)
+
+        let rate = (plan.actualHatchability ?? 0).formatted(.percent.precision(.fractionLength(1)))
+        appendManagerNotification(type: .weeklyReport,
+                                  title: "Batch \(plan.batchID) closed at \(rate) hatchability.",
+                                  message: "Performance report is ready to generate.")
+    }
+
+    private func requireRole(_ role: HatcheryRole, to action: String) throws {
+        guard currentRole == role else {
+            throw BatchLifecycleError.notPermitted(role: currentRole, action: action)
+        }
+    }
+
+    private func transition(_ planID: String,
+                            to next: BatchStatus,
+                            requiredRole: HatcheryRole,
+                            action: String,
+                            mutate: (inout HatchPlanRecord) -> Void) throws -> HatchPlanRecord {
+        try requireRole(requiredRole, to: action)
+        guard var plan = plan(withID: planID) else { throw BatchLifecycleError.planNotFound }
+        guard plan.status.canTransition(to: next) else {
+            throw BatchLifecycleError.invalidTransition(from: plan.status, to: next)
+        }
+        mutate(&plan)
+        plan.status = next
+        planRepository.save(plan)
+        return plan
+    }
+
+    /// Announces lifecycle events that happened on another device.
+    private func handleRemoteStatusChange(_ plan: HatchPlanRecord, previous: BatchStatus?) {
+        let notifications = PushNotificationService.shared
+        switch (currentRole, plan.status) {
+        case (.manager, .pendingReview):
+            appendManagerNotification(type: .approvalUpdate,
+                                      title: "Plan Approval Requested",
+                                      message: "\(plan.createdBy) submitted \(plan.batchID) for \(plan.site.name).")
+            notifications.scheduleApprovalNotification(batchID: plan.batchID, supervisorName: plan.createdBy)
+        case (.manager, .completed):
+            let rate = (plan.actualHatchability ?? 0).formatted(.percent.precision(.fractionLength(1)))
+            notifications.scheduleLocalNotification(title: "Batch Closed",
+                                                    body: "\(plan.batchID) closed at \(rate) hatchability.",
+                                                    identifier: "closed_\(plan.id)")
+        case (.supervisor, .approvedReady):
+            notifications.scheduleLocalNotification(title: "Plan Approved",
+                                                    body: "\(plan.batchID) was approved by \(plan.reviewedBy ?? "the manager"). Ready to set.",
+                                                    identifier: "approved_\(plan.id)")
+        case (.supervisor, .rejected):
+            notifications.scheduleLocalNotification(title: "Plan Needs Changes",
+                                                    body: "\(plan.batchID): \(plan.rejectionReason ?? "see manager notes").",
+                                                    identifier: "rejected_\(plan.id)")
+        default:
+            break
+        }
     }
 
     private func appendSupervisorNotification(type: NotificationType, title: String, message: String) {
@@ -841,6 +1074,8 @@ final class AppSessionViewModel: ObservableObject {
 
     private func finishAuthentication() {
         isAuthenticated = true
+        // Firestore rules require a signed-in user; (re)attach now that we have one.
+        planRepository.startListening()
         PushNotificationService.shared.requestAuthorization { _ in }
         refreshRoleNotifications()
     }
@@ -922,18 +1157,10 @@ final class AppSessionViewModel: ObservableObject {
         }
     }
 
+    /// The schedule is derived from hatch plans, which the repository keeps in
+    /// sync with Firestore; this just recomputes relative dates ("TODAY").
     func fetchScheduledBatches() {
-        syncService.fetchScheduledBatches { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let (batches, forecast)):
-                    self.scheduledBatches = batches
-                    self.efficiencyForecast = forecast
-                case .failure(let error):
-                    print("Failed to fetch scheduled batches: \(error.localizedDescription)")
-                }
-            }
-        }
+        rebuildSchedule(from: hatchPlans)
     }
 
     func syncHatchDetails() {
@@ -1058,62 +1285,30 @@ final class AppSessionViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Execute Set
-    func executeSet(batchID: String, completion: @escaping (Bool) -> Void) {
-        // Prepare payload
-        let snapshot = hatchDetailSnapshots[batchID]
-        let units = snapshot?.eggsToSetLabel ?? ""
-        let payload: [String: Any] = [
-            "batchID": batchID,
-            "initiatedBy": currentUser.fullName,
-            "units": units,
-            "notes": "Executed set from supervisor app"
-        ]
-
-        syncService.syncExecuteSet(batchID: batchID, payload: payload) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    // update local snapshot status
-                    if let old = self.hatchDetailSnapshots[batchID] {
-                        let updated = HatchDetailSnapshot(
-                            batchID: old.batchID,
-                            productionUnit: old.productionUnit,
-                            breed: old.breed,
-                            criticalStatus: "SYNCED",
-                            incubationStage: old.incubationStage,
-                            imageName: old.imageName,
-                            liveConnected: old.liveConnected,
-                            sensors: old.sensors,
-                            metricTiles: old.metricTiles,
-                            operationalTimeline: old.operationalTimeline,
-                            sourceFlocks: old.sourceFlocks,
-                            biologicalTimeline: old.biologicalTimeline,
-                            observations: old.observations,
-                            eggSetDate: old.eggSetDate,
-                            hatchDate: old.hatchDate,
-                            co2Value: old.co2Value,
-                            co2Unit: old.co2Unit,
-                            co2Bars: old.co2Bars,
-                            eggsToSetLabel: old.eggsToSetLabel,
-                            shavalsNeededLabel: old.shavalsNeededLabel
-                        )
-                        self.hatchDetailSnapshots[batchID] = updated
-                    }
-                    completion(true)
-                case .failure(let error):
-                    print("Failed to execute set: \(error.localizedDescription)")
-                    completion(false)
-                }
-            }
-        }
-    }
-
     init() {
-        initializeScheduledBatches()
         initializeHatchDetails()
-        bootstrapPlanStateIfNeeded()
         refreshVoiceOverStatus()
+
+        planRepository.$plans
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] plans in
+                self?.hatchPlans = plans
+                self?.rebuildSchedule(from: plans)
+            }
+            .store(in: &cancellables)
+
+        planRepository.$pendingSyncCount
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$pendingSyncCount)
+
+        planRepository.remoteStatusChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] change in
+                self?.handleRemoteStatusChange(change.plan, previous: change.previous)
+            }
+            .store(in: &cancellables)
+
+        planRepository.startListening()
 
         voiceOverObserver = NotificationCenter.default.addObserver(
             forName: UIAccessibility.voiceOverStatusDidChangeNotification,

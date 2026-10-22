@@ -106,37 +106,6 @@ struct HatcheryUserProfile: Hashable {
     let preferredSecurity: String
 }
 
-enum BatchStatus: String, Codable {
-    case approvedReady = "APPROVED"
-    case pendingReview = "PENDING"
-    case rejected = "REJECTED"
-    case synced = "SYNCED"
-
-    var displayName: String {
-        switch self {
-        case .approvedReady:
-            return "APPROVED"
-        case .pendingReview:
-            return "PENDING"
-        case .rejected:
-            return "REJECTED"
-        case .synced:
-            return "SYNCED"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .approvedReady, .synced:
-            return .hatchGreen
-        case .pendingReview:
-            return Color(hex: "#FFA500")
-        case .rejected:
-            return Color(hex: "#FF6B6B")
-        }
-    }
-}
-
 enum NotificationType: String, Codable {
     case criticalAlert = "CRITICAL_ALERT"
     case approvalUpdate = "APPROVAL_UPDATE"
@@ -193,25 +162,6 @@ struct BatchInsight: Identifiable, Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, batchID, breed, date, status, hatchRate
-    }
-}
-
-struct HatchPlanRecord: Identifiable, Codable, Hashable {
-    let id: String = UUID().uuidString
-    let batchID: String
-    let breed: String
-    let targetChicks: Int
-    let eggSetDate: String
-    let hatchDate: String
-    var status: BatchStatus
-    let createdBy: String
-    let createdAt: Date
-    var reviewedBy: String?
-    var rejectionReason: String?
-    var location: String
-
-    enum CodingKeys: String, CodingKey {
-        case id, batchID, breed, targetChicks, eggSetDate, hatchDate, status, createdBy, createdAt, reviewedBy, rejectionReason, location
     }
 }
 

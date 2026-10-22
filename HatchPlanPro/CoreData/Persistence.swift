@@ -18,14 +18,7 @@ struct PersistenceController {
             let newItem = Item(context: viewContext)
             newItem.timestamp = Date()
         }
-        do {
-            try viewContext.save()
-        } catch {
-            // Replace this implementation with code to handle the error appropriately.
-            // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-            let nsError = error as NSError
-            fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-        }
+        try? viewContext.save()
         return result
     }()
 
@@ -33,25 +26,35 @@ struct PersistenceController {
 
     init(inMemory: Bool = false) {
         container = NSPersistentContainer(name: "HatchPlanPro")
-        if inMemory {
-            container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
+        guard let description = container.persistentStoreDescriptions.first else {
+            fatalError("HatchPlanPro: missing persistent store description")
         }
-        container.loadPersistentStores(completionHandler: { (storeDescription, error) in
-            if let error = error as NSError? {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
+        if inMemory {
+            description.url = URL(fileURLWithPath: "/dev/null")
+        }
+        // Model versions are added as the schema grows; let Core Data infer
+        // the mapping so existing farm-floor data survives app updates.
+        description.shouldMigrateStoreAutomatically = true
+        description.shouldInferMappingModelAutomatically = true
 
-                /*
-                 Typical reasons for an error here include:
-                 * The parent directory does not exist, cannot be created, or disallows writing.
-                 * The persistent store is not accessible, due to permissions or data protection when the device is locked.
-                 * The device is out of space.
-                 * The store could not be migrated to the current model version.
-                 Check the error message to determine what the actual problem was.
-                 */
-                fatalError("Unresolved error \(error), \(error.userInfo)")
+        var loadError: Error?
+        container.loadPersistentStores { _, error in
+            loadError = error
+        }
+
+        if let loadError, let storeURL = description.url, !inMemory {
+            // The local store is a cache of Firestore, so an unreadable store is
+            // rebuilt rather than crashing the app; data re-syncs from the cloud.
+            print("Persistence: store failed to load (\(loadError.localizedDescription)); rebuilding.")
+            try? container.persistentStoreCoordinator.destroyPersistentStore(at: storeURL, type: .sqlite)
+            container.loadPersistentStores { _, error in
+                if let error {
+                    fatalError("Persistence: unable to create store — \(error)")
+                }
             }
-        })
+        }
+
         container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
     }
 }
